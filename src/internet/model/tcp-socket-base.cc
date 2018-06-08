@@ -145,7 +145,8 @@ TcpSocketBase::GetTypeId (void)
                    EnumValue (EcnMode_t::NoEcn),
                    MakeEnumAccessor (&TcpSocketBase::m_ecnMode),
                    MakeEnumChecker (EcnMode_t::NoEcn, "NoEcn",
-                                    EcnMode_t::ClassicEcn, "ClassicEcn"))
+                                    EcnMode_t::ClassicEcn, "ClassicEcn",
+                                    EcnMode_t::EcnPp, "EcnPp"))
     .AddTraceSource ("RTO",
                      "Retransmission timeout",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_rto),
