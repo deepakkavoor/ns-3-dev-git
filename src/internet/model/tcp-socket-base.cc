@@ -2482,7 +2482,17 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
       ++s;
     }
 
-  AddSocketTags (p);
+  // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
+  // if use ECN++ to reinforce classic ECN RFC 3618
+  // should set ECT in SYN/ACK, pure ACK, FIN, RST
+  bool withEct = false;
+  if (m_ecnMode == EcnMode_t::EcnPp && ((flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE)) ||
+    (flags == TcpHeader::ACK) || (flags == (TcpHeader::FIN|TcpHeader::ACK)) || (flags == TcpHeader::RST)))
+    {
+        withEct = true;
+    }
+
+  AddSocketTags (p, withEct);
 
   header.SetFlags (flags);
   header.SetSequenceNumber (s);
@@ -2746,7 +2756,7 @@ TcpSocketBase::ConnectionSucceeded ()
 }
 
 void
-TcpSocketBase::AddSocketTags (const Ptr<Packet> &p) const
+TcpSocketBase::AddSocketTags (const Ptr<Packet> &p, bool withEct) const
 {
   /*
    * Add tags for each socket option.
@@ -2757,7 +2767,7 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p) const
   if (GetIpTos ())
     {
       SocketIpTosTag ipTosTag;
-      if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && CheckEcnEct0 (GetIpTos ()))
+      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && CheckEcnEct0 (GetIpTos ())) || withEct)
         {
           // Set ECT(0) if ECN is enabled with the last received ipTos
           ipTosTag.SetTos (MarkEcnEct0 (GetIpTos ()));
@@ -2771,7 +2781,7 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p) const
     }
   else
     {
-      if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0)
+      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0)|| withEct)
         {
           // Set ECT(0) if ECN is enabled and ipTos is 0
           SocketIpTosTag ipTosTag;
@@ -2783,7 +2793,7 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p) const
   if (IsManualIpv6Tclass ())
     {
       SocketIpv6TclassTag ipTclassTag;
-      if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && CheckEcnEct0 (GetIpv6Tclass ()))
+      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && CheckEcnEct0 (GetIpv6Tclass ())) || withEct)
         {
           // Set ECT(0) if ECN is enabled with the last received ipTos
           ipTclassTag.SetTclass (MarkEcnEct0 (GetIpv6Tclass ()));
@@ -2797,7 +2807,7 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p) const
     }
   else
     {
-      if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0)
+      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0) || withEct)
         {
           // Set ECT(0) if ECN is enabled and ipTos is 0
           SocketIpv6TclassTag ipTclassTag;
@@ -2887,7 +2897,11 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
         }
     }
 
-  AddSocketTags (p);
+  // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
+  // if use ECN++ to reinforce classic ECN RFC 3618
+  // should set ECT in Re-XMT
+  bool withEct = isRetransmission;
+  AddSocketTags (p, withEct);
 
   if (m_closeOnEmpty && (remainingData == 0))
     {
@@ -3607,7 +3621,8 @@ TcpSocketBase::PersistTimeout ()
     }
   AddOptions (tcpHeader);
   //Send a packet tag for setting ECT bits in IP header
-  if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED)
+  //Set ECT in W Probe packet when ECN++ enabled
+  if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED || m_ecnMode == EcnMode_t::EcnPp)
     {
       SocketIpTosTag ipTosTag;
       ipTosTag.SetTos (MarkEcnEct0 (0));
