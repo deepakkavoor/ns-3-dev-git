@@ -2060,7 +2060,20 @@ TcpSocketBase::ProcessSynSent (Ptr<Packet> packet, const TcpHeader& tcpHeader)
     }
   else if (tcpflags & (TcpHeader::SYN | TcpHeader::ACK)
            && m_tcb->m_nextTxSequence + SequenceNumber32 (1) == tcpHeader.GetAckNumber ())
-    { // Handshake completed
+    {
+      // Based on ECN++ draft and RFC 5562 chap 3.2.
+      // If sender received SYN/ACK with CE then sendout ACK|ECE
+      if (m_ecnMode == EcnMode_t::EcnPp && m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD &&
+         (tcpflags & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::ECE))
+        {
+          NS_LOG_DEBUG ("Receiving SYN/ACK with CE mark");
+          SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
+          NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_DISABLED");
+          m_tcb->m_ecnState == TcpSocketState::ECN_DISABLED;
+          return;
+        }
+
+      // Handshake completed
       NS_LOG_DEBUG ("SYN_SENT -> ESTABLISHED");
       m_congestionControl->CongestionStateSet (m_tcb, TcpSocketState::CA_OPEN);
       m_state = ESTABLISHED;
@@ -2117,7 +2130,22 @@ TcpSocketBase::ProcessSynRcvd (Ptr<Packet> packet, const TcpHeader& tcpHeader,
   if (tcpflags == 0
       || (tcpflags == TcpHeader::ACK
           && m_tcb->m_nextTxSequence + SequenceNumber32 (1) == tcpHeader.GetAckNumber ()))
-    { // If it is bare data, accept it and move to ESTABLISHED state. This is
+    {
+      if (m_ecnMode == EcnMode_t::EcnPp && (tcpHeader.GetFlags () & TcpHeader::ECE))
+      {
+        // Based on ECN++ draft and RFC 5562 chap 3.2.
+        // If the receiver get the feedback that first SYN/ACK suffers CE mark,
+        // then the receiver reset IW to 1 SMSS and send another ECN-setup SYN/ACK not ECT
+        NS_LOG_DEBUG ("SET IW to 1 SMSS");
+        m_tcb->m_cWnd = 1 * GetSegSize ();
+        m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+        // This packet SHOULD not set ECT, it will implement in SendEmptyPacket method
+        m_tcb->m_ecnState = TcpSocketState::ECN_ECE_RCVD;
+        SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
+        return;
+      }
+
+      // If it is bare data, accept it and move to ESTABLISHED state. This is
       // possibly due to ACK lost in 3WHS. If in-sequence ACK is received, the
       // handshake is completed nicely.
       NS_LOG_DEBUG ("SYN_RCVD -> ESTABLISHED");
@@ -2158,7 +2186,7 @@ TcpSocketBase::ProcessSynRcvd (Ptr<Packet> packet, const TcpHeader& tcpHeader,
           (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
         {
           NS_LOG_INFO ("Received ECN SYN packet");
-          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK |TcpHeader::ECE);
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
           NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_IDLE");
           m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
        }
@@ -2493,6 +2521,16 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
     (flags == TcpHeader::ACK) || (flags == (TcpHeader::FIN|TcpHeader::ACK)) || (flags == TcpHeader::RST)))
     {
         withEct = true;
+        if((flags == (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE)) &&
+           m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD)
+         {
+           // Based on ECN++ draft and RFC 5562 chap 3.2.
+           // should not set ECT in SYN/ACK when get CE feedback
+           // the TCP state for the first SYN/ACK and send SYN/ACK is both SYN_RCVD
+           // so use ecnState == ECN_ECE_RCVD to differ these two packet
+           withEct = false;
+           m_tcb->m_ecnState = TcpSocketState::ECN_DISABLED;
+         }
     }
 
   AddSocketTags (p, withEct);
