@@ -3674,6 +3674,37 @@ TcpSocketBase::PersistTimeout ()
       ipTclassTag.SetTclass (MarkEcnEct0 (0));
       p->AddPacketTag (ipTclassTag);
     }
+
+  // Based on ECN++ draft 3.2.4: The sender of the probe will then reduce its congestion window as normal.
+  // Congestion response for W probe in ECN++ will be postpone until the data packet send out.
+  
+  // The following piece of code could be removed but reserve temporarily
+  if ((m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_ECE_CE_RCVD)
+      && m_ecnMode == EcnMode_t::EcnPp && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get ())
+    {
+      uint8_t flags = 0;
+
+      m_tcb->m_cWnd = std::max (m_tcb->m_cWnd.Get () / 2, m_tcb->m_segmentSize);
+      m_tcb->m_ssThresh = m_tcb->m_cWnd;
+      m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+      flags |= TcpHeader::CWR;
+      m_ecnCWRSeq = tcpHeader.GetSequenceNumber();
+
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_CE_RCVD)
+      {
+        flags |= TcpHeader::ECE;
+        m_tcb->m_ecnState = TcpSocketState::ECN_SENDING_ECE;
+        NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_SENDING_ECE");
+      }
+      else
+      {
+        m_tcb->m_ecnState = TcpSocketState::ECN_CWR_SENT;
+        NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_CWR_SENT");
+      }
+      tcpHeader.SetFlags (flags);
+    }
+  // The above piece of code could be removed but reserve temporarily
+  
   m_txTrace (p, tcpHeader, this);
 
   if (m_endPoint != nullptr)
