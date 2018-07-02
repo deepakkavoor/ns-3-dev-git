@@ -2520,9 +2520,10 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
   // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
   // if use ECN++ to reinforce classic ECN RFC 3618
   // should set ECT in SYN/ACK, pure ACK, FIN, RST
+  // pure ACK do not clear so far, temporarily not set ECT in pure ACK
   bool withEct = false;
   if (m_ecnMode == EcnMode_t::EcnPp && ((flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE)) ||
-    (flags == TcpHeader::ACK) || (flags == (TcpHeader::FIN|TcpHeader::ACK)) || (flags == TcpHeader::RST)))
+    (flags == (TcpHeader::FIN|TcpHeader::ACK)) || (flags == TcpHeader::RST)))
     {
         withEct = true;
         if((flags == (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE)) &&
@@ -2533,7 +2534,7 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
            // the TCP state for the first SYN/ACK and send SYN/ACK is both SYN_RCVD
            // so use ecnState == ECN_ECE_RCVD to differ these two packet
            withEct = false;
-           m_tcb->m_ecnState = TcpSocketState::ECN_DISABLED;
+           m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
          }
     }
 
@@ -3670,7 +3671,7 @@ TcpSocketBase::PersistTimeout ()
   AddOptions (tcpHeader);
   //Send a packet tag for setting ECT bits in IP header
   //Set ECT in W Probe packet when ECN++ enabled
-  if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED || m_ecnMode == EcnMode_t::EcnPp)
+  if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED)
     {
       SocketIpTosTag ipTosTag;
       ipTosTag.SetTos (MarkEcnEct0 (0));
