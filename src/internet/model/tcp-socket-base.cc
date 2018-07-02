@@ -1120,7 +1120,9 @@ TcpSocketBase::ForwardUp (Ptr<Packet> packet, Ipv4Header header, uint16_t port,
       return;
     }
 
-  if (header.GetEcn() == Ipv4Header::ECN_CE && m_ecnCESeq < tcpHeader.GetSequenceNumber ())
+  // Based on ECN++ draft, no congestion response for RST and FIN packet, so ignore CE in RST and FIN receiver
+  bool isIgnoreCE = (tcpHeader.GetFlags() & TcpHeader::RST || tcpHeader.GetFlags() & TcpHeader::FIN);
+  if (header.GetEcn() == Ipv4Header::ECN_CE && m_ecnCESeq < tcpHeader.GetSequenceNumber () && !isIgnoreCE)
     {
       NS_LOG_INFO ("Received CE flag is valid");
       NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_CE_RCVD");
@@ -1159,7 +1161,9 @@ TcpSocketBase::ForwardUp6 (Ptr<Packet> packet, Ipv6Header header, uint16_t port,
       return;
     }
 
-  if (header.GetEcn() == Ipv6Header::ECN_CE && m_ecnCESeq < tcpHeader.GetSequenceNumber ())
+  // Based on ECN++ draft, no congestion response for RST and FIN packet, so ignore CE in RST and FIN receiver
+  bool isIgnoreCE = (tcpHeader.GetFlags() & TcpHeader::RST || tcpHeader.GetFlags() & TcpHeader::FIN);
+  if (header.GetEcn() == Ipv6Header::ECN_CE && m_ecnCESeq < tcpHeader.GetSequenceNumber () && !isIgnoreCE)
     {
       NS_LOG_INFO ("Received CE flag is valid");
       NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_CE_RCVD");
@@ -2919,8 +2923,10 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
       m_delAckCount = 0;
     }
 
-  // Sender should reduce the Congestion Window as a response to receiver's ECN Echo notification only once per window
-  if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get () && !isRetransmission)
+  // Classic ECN: Sender should reduce the Congestion Window as a response to receiver's ECN Echo notification only once per window
+  // ECN++: Sender should reduce the Congestion Window even for the retransmission packet
+  bool isRequiredCWR = (m_ecnMode == EcnMode_t::ClassicEcn && !isRetransmission) || m_ecnMode == EcnMode_t::EcnPp;
+  if ((m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get () && isRequiredCWR)
     {
       NS_LOG_INFO ("Backoff mechanism by reducing CWND  by half because we've received ECN Echo");
       m_tcb->m_cWnd = std::max (m_tcb->m_cWnd.Get () / 2, m_tcb->m_segmentSize);
