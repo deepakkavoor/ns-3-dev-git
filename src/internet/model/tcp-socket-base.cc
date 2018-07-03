@@ -2835,6 +2835,13 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p, bool withEct) const
           ipTosTag.SetTos (MarkEcnEct0 (GetIpTos ()));
           p->AddPacketTag (ipTosTag);
         }
+      else
+        {
+          // Not set ECT
+          SocketIpTosTag ipTosTag;
+          ipTosTag.SetTos (ClearEcnBits (GetIpTos ()));
+          p->AddPacketTag (ipTosTag);
+        }
     }
 
   if (IsManualIpv6Tclass ())
@@ -2859,6 +2866,13 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p, bool withEct) const
           // Set ECT(0) if ECN is enabled and ipTos is 0
           SocketIpv6TclassTag ipTclassTag;
           ipTclassTag.SetTclass (MarkEcnEct0 (GetIpv6Tclass ()));
+          p->AddPacketTag (ipTclassTag);
+        }
+      else
+        {
+          // Net set ECT
+          SocketIpv6TclassTag ipTclassTag;
+          ipTclassTag.SetTclass (ClearEcnBits (GetIpv6Tclass ()));
           p->AddPacketTag (ipTclassTag);
         }
     }
