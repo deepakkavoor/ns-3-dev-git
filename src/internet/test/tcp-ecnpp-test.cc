@@ -47,7 +47,6 @@ public:
 
   TcpSocketCongestionRouter () : TcpSocketMsgBase ()
   {
-    m_dataPacketSent = 0;
     m_controlPacketSent = 0;
   }
 
@@ -67,13 +66,12 @@ public:
   void SetTestCase (uint32_t testCase, SocketWho who);
 
 protected:
-  virtual uint32_t SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool withAck);
   virtual void SendEmptyPacket (uint8_t flags);
+  virtual void PersistTimeout ();
   virtual Ptr<TcpSocketBase> Fork (void);
   void SetCE(Ptr<Packet> p);
 
 private:
-  uint32_t m_dataPacketSent;
   uint32_t m_controlPacketSent;
   uint32_t m_testcase;
   SocketWho m_who;
@@ -103,14 +101,6 @@ Ptr<TcpSocketBase>
 TcpSocketCongestionRouter::Fork (void)
 {
   return CopyObject<TcpSocketCongestionRouter> (this);
-}
-
-uint32_t
-TcpSocketCongestionRouter::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool withAck)
-{
-  NS_LOG_FUNCTION (this << m_testcase << seq << maxSize << withAck);
-  return TcpSocketBase::SendDataPacket (seq, maxSize, withAck);
-
 }
 
 void
@@ -149,12 +139,6 @@ TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
     }
 
   AddSocketTags (p, withEct);
-
-  // CE mark in control packet for test logic
-  if ((m_testcase == 6 || m_testcase == 7) && flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE) && m_who == RECEIVER)
-  {
-    SetCE(p);
-  }
 
   header.SetFlags (flags);
   header.SetSequenceNumber (s);
@@ -217,13 +201,6 @@ TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
     }
   header.SetWindowSize (windowSize);
 
-  if(m_testcase < 6 && (m_controlPacketSent < 6 && m_controlPacketSent > 3)  && m_who == RECEIVER)
-  {
-    NS_LOG_DEBUG("set Window size = 0, trying to trigger W probe");
-    header.SetWindowSize (0);
-  }
-
-
   if (flags & TcpHeader::ACK)
     { // If sending an ACK, cancel the delay ACK as well
       m_delAckEvent.Cancel ();
@@ -240,6 +217,18 @@ TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
     }
 
   m_txTrace (p, header, this);
+
+  // CE mark in control packet for test logic
+  if ((m_testcase == 6 || m_testcase == 7) && flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE) && m_who == RECEIVER)
+  {
+    SetCE(p);
+  }
+
+  if(m_testcase < 6 && (m_controlPacketSent < 6 && m_controlPacketSent > 3)  && m_who == RECEIVER)
+  {
+    NS_LOG_DEBUG("set Window size = 0, trying to trigger W probe");
+    header.SetWindowSize (0);
+  }
 
   if (m_endPoint != nullptr)
     {
@@ -261,6 +250,70 @@ TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
       m_retxEvent = Simulator::Schedule (m_rto, &TcpSocketCongestionRouter::SendEmptyPacket, this, flags);
     }
   return;
+}
+
+void
+TcpSocketCongestionRouter::PersistTimeout ()
+{
+  // return TcpSocketBase::PersistTimeout();
+  NS_LOG_LOGIC ("PersistTimeout expired at " << Simulator::Now ().GetSeconds ());
+  m_persistTimeout = std::min (Seconds (60), Time (2 * m_persistTimeout)); // max persist timeout = 60s
+  Ptr<Packet> p = m_txBuffer->CopyFromSequence (1, m_tcb->m_nextTxSequence);
+  m_txBuffer->ResetLastSegmentSent ();
+  TcpHeader tcpHeader;
+  tcpHeader.SetSequenceNumber (m_tcb->m_nextTxSequence);
+  tcpHeader.SetAckNumber (m_rxBuffer->NextRxSequence ());
+  tcpHeader.SetWindowSize (AdvertisedWindowSize ());
+  if (m_endPoint != nullptr)
+    {
+      tcpHeader.SetSourcePort (m_endPoint->GetLocalPort ());
+      tcpHeader.SetDestinationPort (m_endPoint->GetPeerPort ());
+    }
+  else
+    {
+      tcpHeader.SetSourcePort (m_endPoint6->GetLocalPort ());
+      tcpHeader.SetDestinationPort (m_endPoint6->GetPeerPort ());
+    }
+  AddOptions (tcpHeader);
+  //Send a packet tag for setting ECT bits in IP header
+  //Set ECT in W Probe packet when ECN++ enabled
+  if (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED)
+    {
+      NS_LOG_DEBUG("Setting ECT for W probe");
+      SocketIpTosTag ipTosTag;
+      ipTosTag.SetTos (MarkEcnEct0 (0));
+      p->AddPacketTag (ipTosTag);
+
+      SocketIpv6TclassTag ipTclassTag;
+      ipTclassTag.SetTclass (MarkEcnEct0 (0));
+      p->AddPacketTag (ipTclassTag);
+    }
+
+  // Based on ECN++ draft 3.2.4: The sender of the probe will then reduce its congestion window as normal.
+  // Congestion response for W probe in ECN++ will be postpone until the data packet send out.
+
+  m_txTrace (p, tcpHeader, this);
+
+  if (m_testcase == 2 || m_testcase == 4 || m_testcase == 5)
+  {
+    SetCE(p);
+  }
+
+  if (m_endPoint != nullptr)
+    {
+      m_tcp->SendPacket (p, tcpHeader, m_endPoint->GetLocalAddress (),
+                         m_endPoint->GetPeerAddress (), m_boundnetdevice);
+    }
+  else
+    {
+      m_tcp->SendPacket (p, tcpHeader, m_endPoint6->GetLocalAddress (),
+                         m_endPoint6->GetPeerAddress (), m_boundnetdevice);
+    }
+
+  NS_LOG_LOGIC ("Schedule persist timeout at time "
+                << Simulator::Now ().GetSeconds () << " to expire at time "
+                << (Simulator::Now () + m_persistTimeout).GetSeconds ());
+  m_persistEvent = Simulator::Schedule (m_persistTimeout, &TcpSocketCongestionRouter::PersistTimeout, this);
 }
 
 void TcpSocketCongestionRouter::SetCE(Ptr<Packet> p)
@@ -288,6 +341,7 @@ public:
 protected:
   virtual void Rx (const Ptr<const Packet> p, const TcpHeader&h, SocketWho who);
   virtual void Tx (const Ptr<const Packet> p, const TcpHeader&h, SocketWho who);
+  virtual void CWndTrace (uint32_t oldValue, uint32_t newValue);
   virtual Ptr<TcpSocketMsgBase> CreateSenderSocket (Ptr<Node> node);
   virtual Ptr<TcpSocketMsgBase> CreateReceiverSocket (Ptr<Node> node);
   void ConfigureProperties ();
@@ -298,6 +352,7 @@ private:
   uint32_t m_senderReceived;
   uint32_t m_receiverSent;
   uint32_t m_receiverReceived;
+  uint32_t m_cwndChangeCount;
 };
 
 TcpEcnPpTest::TcpEcnPpTest (uint32_t testcase, const std::string &desc)
@@ -306,7 +361,8 @@ TcpEcnPpTest::TcpEcnPpTest (uint32_t testcase, const std::string &desc)
   m_senderSent (0),
   m_senderReceived (0),
   m_receiverSent (0),
-  m_receiverReceived (0)
+  m_receiverReceived (0),
+  m_cwndChangeCount (0)
 {
 }
 
@@ -354,6 +410,23 @@ Ptr<TcpSocketMsgBase> TcpEcnPpTest::CreateReceiverSocket (Ptr<Node> node)
 }
 
 void
+TcpEcnPpTest::CWndTrace (uint32_t oldValue, uint32_t newValue)
+{
+  if (m_testcase == 2 || m_testcase == 4 || m_testcase == 5)
+    {
+      if (newValue < oldValue)
+        {
+          m_cwndChangeCount++;
+          NS_LOG_DEBUG("CWndTrace" << oldValue << " " << newValue);
+          if (m_cwndChangeCount == 2) // bacause of trying to trigger W probe, there is one retransmission
+          {
+            NS_TEST_ASSERT_MSG_EQ (newValue, oldValue / 2, "Congestion window should be reduced by half");
+          }
+        }
+    }
+}
+
+void
 TcpEcnPpTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
 {
   NS_LOG_FUNCTION(this << m_testcase << who);
@@ -361,6 +434,7 @@ TcpEcnPpTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
   if (who == RECEIVER)
   {
     m_receiverReceived++;
+    NS_LOG_DEBUG("Packet size is: " << p->GetSize() << " at packet: " << m_receiverReceived);
     if (m_receiverReceived == 1) // SYN for negotiation test in TCP header
     {
       NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::SYN), 0, "SYN should be received as first message at the receiver");
@@ -393,6 +467,24 @@ TcpEcnPpTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
         NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::ECE), 0, "ECE should be set if the sender is EcnPp when received SYN/ACK with CE mark");
       }
     }
+
+    if (h.GetFlags () & TcpHeader::CWR) // just for debug to findout which data packet carried CWR because of previous ECE
+    {
+      NS_LOG_DEBUG("CWR at: " << m_receiverReceived);
+    }
+
+    if (m_receiverReceived == 12) // The next data packet after CE W probe
+    {
+      if (m_testcase == 1 || m_testcase == 3)
+      {
+        NS_TEST_ASSERT_MSG_EQ (((h.GetFlags ()) & TcpHeader::CWR), 0, "The flag ECE should not be set in the TCP header even if W probe get congestion");
+      }
+
+      if (m_testcase == 2 || m_testcase == 4 || m_testcase == 5)
+      {
+        NS_TEST_ASSERT_MSG_NE ((h.GetFlags () & TcpHeader::CWR), 0, "The flag ECE should be set in the TCP header if W probe get congestion");
+      }
+    }
   }
 
   if (who == SENDER)
@@ -408,6 +500,24 @@ TcpEcnPpTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
       else if (m_testcase == 1 || m_testcase == 3)
       {
         NS_TEST_ASSERT_MSG_EQ (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should not be set in the TCP header of SYN/ACK at sender when either receiver or sender are not ECN Capable");
+      }
+    }
+
+    if ((h.GetFlags () & TcpHeader::ECE) == TcpHeader::ECE) // just for debug to findout which ACK carried ECE because of CE
+    {
+      NS_LOG_DEBUG("ECE at: " << m_senderReceived);
+    }
+
+    if (m_senderReceived == 6) // ACK for W probe
+    {
+      if (m_testcase == 1 || m_testcase == 3)
+      {
+        NS_TEST_ASSERT_MSG_EQ (((h.GetFlags ()) & TcpHeader::ECE), 0, "The flag ECE should not be set in the TCP header even if W probe get congestion");
+      }
+
+      if (m_testcase == 2 || m_testcase == 4 || m_testcase == 5)
+      {
+        NS_TEST_ASSERT_MSG_NE ((h.GetFlags () & TcpHeader::ECE), 0, "The flag ECE should be set in the TCP header if W probe get congestion");
       }
     }
   }
@@ -440,7 +550,7 @@ void TcpEcnPpTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho 
 
     if (p->GetSize() == 1) // W probe
     {
-      NS_LOG_DEBUG("W probe being triggered");
+      NS_LOG_DEBUG("W probe being triggered " << m_senderSent);
       if (m_testcase == 1 || m_testcase == 3)
       {
         NS_TEST_ASSERT_MSG_EQ (ipTos, 0x0, "IP TOS should not have ECT set in W probe if the sender is NoEcn");
@@ -454,11 +564,11 @@ void TcpEcnPpTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho 
     if (h.GetFlags() & TcpHeader::FIN) // FIN
     {
       NS_LOG_DEBUG("Send out FIN packet");
-      if (m_testcase == 3)
+      if (m_testcase == 1 || m_testcase == 3)
       {
         NS_TEST_ASSERT_MSG_EQ (ipTos, 0x0, "IP TOS should not have ECT set in FIN if the sender is not EcnPp");
       }
-      if (m_testcase == 2 || m_testcase == 5)
+      if (m_testcase == 2 || m_testcase == 5) // classicEcn will set ECT in FIN
       {
         NS_TEST_ASSERT_MSG_EQ (ipTos, 0x2, "IP TOS should have ECT set in FIN if the sender is EcnPp");
       }
@@ -467,7 +577,6 @@ void TcpEcnPpTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho 
     if (h.GetFlags() & TcpHeader::RST) // RST in IP header
     {
       NS_LOG_DEBUG("Send out RST packet");
-
     }
   }
 
@@ -476,7 +585,7 @@ void TcpEcnPpTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho 
     m_receiverSent++;
     if (m_receiverSent == 1) // SYN/ACK for negotiation test
     {
-      if (m_testcase == 4 || m_testcase == 5)
+      if (m_testcase == 4 || m_testcase == 5 || m_testcase == 6 || m_testcase == 7)
       {
         NS_TEST_ASSERT_MSG_EQ (ipTos, 0x2, "IP TOS should have ECT set in SYN/ACK");
       }
@@ -484,13 +593,6 @@ void TcpEcnPpTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho 
       {
         NS_TEST_ASSERT_MSG_EQ (ipTos, 0x0, "IP TOS should not have ECT set in SYN/ACK");
       }
-
-      // ------------- SHOULD BE REMOVED NEXT ------------------------------------
-      if (m_testcase == 6 || m_testcase == 7)
-      {
-        NS_TEST_ASSERT_MSG_EQ (ipTos, 0x3, "IP TOS should have CE set in SYN/ACK");
-      }
-      // ------------- SHOULD BE REMOVED NEXT ------------------------------------
     }
   }
 }
