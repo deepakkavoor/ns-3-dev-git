@@ -15,9 +15,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
- * Authors: Shravya Ks <shravya.ks0@gmail.com>
- *
  */
+
  #include "ns3/ipv4.h"
  #include "ns3/ipv6.h"
  #include "ns3/ipv4-interface-address.h"
@@ -40,6 +39,17 @@ namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("TcpEcnPpTestSuite");
 
+ /**
+  * \ingroup internet-test
+  * \ingroup tests
+  *
+  * \brief A TCP socket which sends certain data packets with CE flags.
+  *
+  * The SendEmptyPacket function of this class are trying to construct CE SYN/ACK for case 6 and 7.
+  * The SendEmptyPacket function alse helps to construct W probe packet for case 1, 2, 3, 4 and 5.
+  * PersistTimeout function helps to construct CE W probe packet for 1, 2, 3, 4 and 5.
+  *
+  */
 class TcpSocketCongestionRouter : public TcpSocketMsgBase
 {
 public:
@@ -127,10 +137,6 @@ TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
       ++s;
     }
 
-  // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
-  // if use ECN++ to reinforce classic ECN RFC 3618
-  // should set ECT in SYN/ACK, pure ACK, FIN, RST
-  // pure ACK do not clear so far, temporarily not set ECT in pure ACK
   bool withEct = false;
   if (m_ecnMode == EcnMode_t::EcnPp && ((flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE)) ||
     (flags == (TcpHeader::FIN|TcpHeader::ACK)) || (flags == TcpHeader::RST)))
@@ -327,6 +333,30 @@ void TcpSocketCongestionRouter::SetCE(Ptr<Packet> p)
   p->ReplacePacketTag (ipTclassTag);
 }
 
+/**
+ * \ingroup internet-test
+ * \ingroup tests
+ *
+ * \brief checks if ECT (in IP header), CWR and ECE (in TCP header) bits are set correctly in different patcket types.
+ *
+ * This test suite will run five combinations of EcnPp to different Ecn Modes.
+ * case 1: SENDER EcnPp       RECEIVER NoEcn
+ * case 2: SENDER EcnPp       RECEIVER ClassicEcn
+ * case 3: SENDER NoEcn       RECEIVER EcnPp
+ * case 4: SENDER ClassicEcn  RECEIVER EcnPp
+ * case 5: SENDER EcnPp       RECEIVER EcnPp
+ * The first five cases are trying to test the following things:
+ * 1. ECT, CWR and ECE setting correctness in SYN, SYN/ACK and ACK in negotiation phases
+ * 2. ECT setting correctness for W probe， FIN packet and RST packet
+ * 3. Congestion response when W probe suffers congestion, if we treat W probe as a special data packet
+ *
+ * To test the congestion response for SYN/ACK packet, case 6 and 7 are constructed.
+ * case 6: SENDER ClassicEcn  RECEIVER EcnPp
+ * case 7: SENDER EcnPp       RECEIVER EcnPp
+ * case 6 should ignore the CE mark in SYN/ACK when sender received this packet
+ * cass 7 will feedback this information from sender to receiver and corresponding process.
+ *
+ */
 class TcpEcnPpTest : public TcpGeneralTest
 {
 public:
@@ -366,11 +396,6 @@ TcpEcnPpTest::TcpEcnPpTest (uint32_t testcase, const std::string &desc)
 {
 }
 
-// case 1: SENDER EcnPp       RECEIVER NoEcn
-// case 2: SENDER EcnPp       RECEIVER ClassicEcn
-// case 3: SENDER NoEcn       RECEIVER EcnPp
-// case 4: SENDER ClassicEcn  RECEIVER EcnPp
-// case 5: SENDER EcnPp       RECEIVER EcnPp
 void TcpEcnPpTest::ConfigureProperties ()
 {
   TcpGeneralTest::ConfigureProperties ();
