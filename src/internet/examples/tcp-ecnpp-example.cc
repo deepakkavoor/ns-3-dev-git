@@ -19,12 +19,16 @@
 
 // Network topology
 //
-//     10Mbps 2ms
-// n0 -------------|
-//                 |  1.5Mbps 20ms      10Mbps 2ms
-//                n2 -------------- n3 -------------- n4
-//     10Mbps 2ms  |
-// n0 -------------|
+//     500Mbps 2ms                     500Mbps 2ms
+// n0 -------------|                 |-------------- n4
+//                 |    1Mbps 20ms   |
+//                n2 -------------- n3
+//     500Mbps 2ms |                 | 500Mbps 2ms
+// n1 -------------|                 |-------------- n5
+
+// n0 send to n4
+// n1 send to n5
+// n0 and n1 share bottle-neck path n2-n3
 
 
 #include "ns3/core-module.h"
@@ -39,72 +43,96 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("EcnPpExample");
 
-static void PrintCWndCb (uint32_t oldVal, uint32_t newVal)
+std::string dir = "Plots/";
+
+static void PrintCWndCb (uint32_t oldval, uint32_t newval)
 {
-  std::cout<< Simulator::Now().GetSeconds() << "s " << newVal << std::endl;
+  std::ofstream fPlotQueue (dir + "cwndTraces/plotn0.txt", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newval/536.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void PrintCWndCb1 (uint32_t oldval, uint32_t newval)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/plotn1.txt", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newval/536.0 << std::endl;
+  fPlotQueue.close ();
 }
 
 static void ConfigTracing ()
 {
   Config::ConnectWithoutContext ("NodeList/0/$ns3::TcpL4Protocol/SocketList/0/CongestionWindow", MakeCallback (&PrintCWndCb));
+  Config::ConnectWithoutContext ("NodeList/1/$ns3::TcpL4Protocol/SocketList/0/CongestionWindow", MakeCallback (&PrintCWndCb1));
 }
 
 int main (int argc, char *argv[])
 {
-  LogComponentEnable ("EcnPpExample", LOG_LEVEL_INFO);
+  char buffer[80];
+  time_t rawtime;
+  struct tm * timeinfo;
+  time (&rawtime);
+  timeinfo = localtime(&rawtime);
+  strftime(buffer,sizeof(buffer),"%d-%m-%Y-%I-%M-%S",timeinfo);
+  std::string currentTime (buffer);
 
   CommandLine cmd;
   cmd.Parse (argc, argv);
 
-  std::string redLinkDataRate = "1.5Mbps";
-  std::string redLinkDelay = "20ms";
+  Time::SetResolution (Time::NS);
+
+  std::string redLinkDataRate = "1Mbps";
+  std::string redLinkDelay = "5ms";
+  std::string EcnMode ="EcnPp";
+  bool useEcn = true;
+  uint32_t meanPktSize = 500;
+  uint32_t maxBytes = 0;
 
   NS_LOG_INFO ("Create nodes.");
   NodeContainer c;
-  c.Create(5);
+  c.Create(6);
   NodeContainer n0n2 = NodeContainer (c.Get (0), c.Get (2));
   NodeContainer n1n2 = NodeContainer (c.Get (1), c.Get (2));
   NodeContainer n2n3 = NodeContainer (c.Get (2), c.Get (3));
   NodeContainer n3n4 = NodeContainer (c.Get (3), c.Get (4));
+  NodeContainer n3n5 = NodeContainer (c.Get (3), c.Get (5));
 
   NS_LOG_INFO ("Set default configurations.");
-  Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue ("ns3::TcpNewReno"));
-  Config::SetDefault ("ns3::TcpSocket::DelAckCount", UintegerValue (1));
-  Config::SetDefault ("ns3::RedQueueDisc::UseEcn", BooleanValue(true));
-  Config::SetDefault ("ns3::RedQueueDisc::UseHardDrop", BooleanValue(false));
-  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("EcnPp"));
+  Config::SetDefault ("ns3::RedQueueDisc::MaxSize", QueueSizeValue (QueueSize ("25p")));
+  Config::SetDefault ("ns3::RedQueueDisc::MeanPktSize", UintegerValue (meanPktSize));
+  Config::SetDefault ("ns3::RedQueueDisc::Wait", BooleanValue (true));
+  Config::SetDefault ("ns3::RedQueueDisc::Gentle", BooleanValue (true));
+  Config::SetDefault ("ns3::RedQueueDisc::QW", DoubleValue (0.002));
+  Config::SetDefault ("ns3::RedQueueDisc::MinTh", DoubleValue (5));
+  Config::SetDefault ("ns3::RedQueueDisc::MaxTh", DoubleValue (15));
+  Config::SetDefault ("ns3::RedQueueDisc::UseEcn", BooleanValue (useEcn));
+  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("NoEcn"));
+
+
+  NS_LOG_INFO ("Create channels.");
+  PointToPointHelper p2p;
+
+  p2p.SetDeviceAttribute ("DataRate", StringValue ("500Mbps"));
+  p2p.SetChannelAttribute ("Delay", StringValue ("2ms"));
+  NetDeviceContainer devn0n2 = p2p.Install (n0n2);
+  NetDeviceContainer devn1n2 = p2p.Install (n1n2);
+  NetDeviceContainer devn3n4 = p2p.Install (n3n4);
+  NetDeviceContainer devn3n5= p2p.Install (n3n5);
+
+  PointToPointHelper p2pRouter;
+  p2pRouter.SetDeviceAttribute ("DataRate", StringValue (redLinkDataRate));
+  p2pRouter.SetChannelAttribute ("Delay", StringValue (redLinkDelay));
+  NetDeviceContainer devn2n3 = p2pRouter.Install (n2n3);
 
   NS_LOG_INFO ("Install internet stack.");
   InternetStackHelper internet;
   internet.Install (c);
 
-  TrafficControlHelper tchPfifo;
-  uint16_t handle = tchPfifo.SetRootQueueDisc ("ns3::PfifoFastQueueDisc");
-  tchPfifo.AddInternalQueues (handle, 3, "ns3::DropTailQueue", "MaxSize", StringValue ("1000p"));
-
+  NS_LOG_INFO ("Install RED for bottle-neck path.");
   TrafficControlHelper tchRed;
   tchRed.SetRootQueueDisc ("ns3::RedQueueDisc", "LinkBandwidth", StringValue (redLinkDataRate),
-      "LinkDelay", StringValue (redLinkDelay));
-
-  NS_LOG_INFO ("Create channels.");
-  PointToPointHelper pointToPoint;
-
-  pointToPoint.SetQueue ("ns3::DropTailQueue");
-  pointToPoint.SetDeviceAttribute ("DataRate", StringValue ("10Mbps"));
-  pointToPoint.SetChannelAttribute ("Delay", StringValue ("2ms"));
-  NetDeviceContainer devn0n2 = pointToPoint.Install (n0n2);
-  tchPfifo.Install (devn0n2);
-  NetDeviceContainer devn1n2 = pointToPoint.Install (n1n2);
-  tchPfifo.Install (devn1n2);
-  NetDeviceContainer devn3n4 = pointToPoint.Install (n3n4);
-  tchPfifo.Install (devn3n4);
-
-  pointToPoint.SetQueue ("ns3::DropTailQueue");
-  pointToPoint.SetDeviceAttribute ("DataRate", StringValue (redLinkDataRate));
-  pointToPoint.SetChannelAttribute ("Delay", StringValue (redLinkDelay));
-  NetDeviceContainer devn2n3 = pointToPoint.Install (n2n3);
-  // only backbone link has RED queue disc
-  QueueDiscContainer queueDiscs = tchRed.Install (devn2n3);
+                           "LinkDelay", StringValue (redLinkDelay));
+  QueueDiscContainer queueDiscs;
+  queueDiscs = tchRed.Install (devn2n3);
 
   NS_LOG_INFO("Assign IP Address.");
   Ipv4AddressHelper ipv4;
@@ -121,36 +149,51 @@ int main (int argc, char *argv[])
   ipv4.SetBase ("10.1.4.0", "255.255.255.0");
   Ipv4InterfaceContainer i3i4 = ipv4.Assign (devn3n4);
 
+  ipv4.SetBase ("10.1.5.0", "255.255.255.0");
+  Ipv4InterfaceContainer i3i5 = ipv4.Assign (devn3n5);
+
   NS_LOG_INFO("Set up routing.");
   Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
 
-  uint16_t port = 50000;
-
   NS_LOG_INFO("Install Applications.");
-  PacketSinkHelper sinkHelper ("ns3::TcpSocketFactory", (InetSocketAddress (Ipv4Address::GetAny (), port)));
-  ApplicationContainer sinkApp = sinkHelper.Install (c.Get (4));
+  PacketSinkHelper sink ("ns3::TcpSocketFactory",InetSocketAddress(Ipv4Address::GetAny(),50000));
+  ApplicationContainer sinkApp = sink.Install(c.Get(4));
   sinkApp.Start (Seconds (0.0));
-  sinkApp.Stop (Seconds (10.0));
+  sinkApp.Stop (Seconds (100.0));
 
-  OnOffHelper clientHelper ("ns3::TcpSocketFactory", Address());
-  clientHelper.SetAttribute ("DataRate", DataRateValue (DataRate ("10Mbps")));
-  AddressValue remoteAddress (InetSocketAddress (i3i4.GetAddress (1), port));
-  clientHelper.SetAttribute ("Remote", remoteAddress);
-  ApplicationContainer clientApp;
-  clientApp.Add (clientHelper.Install (c.Get(0)));
-  clientApp.Add (clientHelper.Install (c.Get(1)));
-  clientApp.Start (Seconds (0));
-  clientApp.Stop (Seconds (10.0));
+  PacketSinkHelper sink1 ("ns3::TcpSocketFactory",InetSocketAddress(Ipv4Address::GetAny(),50001));
+  ApplicationContainer sinkApp1 = sink1.Install(c.Get(5));
+  sinkApp1.Start (Seconds (0.0));
+  sinkApp1.Stop (Seconds (100.0));
 
-  Simulator::Schedule (Seconds (0.00001), &ConfigTracing);
+  BulkSendHelper clientHelper ("ns3::TcpSocketFactory", InetSocketAddress (i3i4.GetAddress (1), 50000));
+  clientHelper.SetAttribute ("MaxBytes", UintegerValue (maxBytes));
+  ApplicationContainer sourceApp = clientHelper.Install(c.Get(0));
+  sourceApp.Start (Seconds (0.0));
+  sourceApp.Stop (Seconds (100.0));
+
+  BulkSendHelper clientHelper1 ("ns3::TcpSocketFactory", InetSocketAddress (i3i5.GetAddress (1), 50001));
+  clientHelper1.SetAttribute ("MaxBytes", UintegerValue (maxBytes));
+  ApplicationContainer sourceApp1 = clientHelper1.Install(c.Get(1));
+  sourceApp1.Start (Seconds (0.0));
+  sourceApp1.Stop (Seconds (100.0));
+
+  dir += (currentTime + "/");
+  std::string dirToSave = "mkdir -p " + dir;
+  system (dirToSave.c_str ());
+  system ((dirToSave + "/pcap/").c_str ());
+  system ((dirToSave + "/cwndTraces/").c_str ());
+  p2p.EnablePcapAll (dir + "pcap/N", true);
+  Simulator::Schedule (Seconds (0.01), &ConfigTracing);
 
   NS_LOG_INFO ("Run Simulation");
-  Simulator::Stop (Seconds (10.0));
+  Simulator::Stop (Seconds (100.0));
   Simulator::Run ();
+
+  QueueDisc::Stats st = queueDiscs.Get (0)->GetStats ();
+  std::cout << st << std::endl;
+
   Simulator::Destroy ();
   NS_LOG_INFO ("Done.");
-
-  // Ptr<PacketSink> sink = DynamicCast<PacketSink> (sinkApp.Get(0));
-  // std::cout << "Total Bytes Received: " << sink->GetTotalRx () << std::endl;
-  // return 0;
+  return 0;
 }
