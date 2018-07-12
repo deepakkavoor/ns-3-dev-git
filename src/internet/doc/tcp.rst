@@ -769,7 +769,18 @@ packets. It uses two bits in the IP header: ECN Capable Transport (ECT bit)
 and Congestion Experienced (CE bit), and two bits in the TCP header: Congestion
 Window Reduced (CWR) and ECN Echo (ECE).
 
+Now ECN in ns-3 support two mode of ECN in detail.
+
+1. classic ECN
+Classic ECN refers to ECN protocol specified in RFC 3168,
+it only support ECN functionality for date packet.
 More information is available in RFC 3168: https://tools.ietf.org/html/rfc3168
+
+2. ECN++
+ECN++ adding ECN support on SYN, SYN/ACK, pure ACK, W probe, FIN, RST and Re-XMT.
+ECN++ can be used either classic ECN feedback or AccECN feedback.
+More information is available in ECN++ draft https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02
+
 
 The following ECN states are declared in ``src/internet/model/tcp-socket.h``
 
@@ -785,7 +796,6 @@ The following ECN states are declared in ``src/internet/model/tcp-socket.h``
       ECN_CWR_SENT      //!< Sender has reduced the congestion window, and sent a packet with CWR bit set in TCP header. This is used for tracing.
     } EcnStates_t;
 
-Current implementation of ECN is based on RFC 3168 and is referred as Classic ECN.
 
 The following enum represents the mode of ECN:
 
@@ -794,7 +804,8 @@ The following enum represents the mode of ECN:
   typedef enum
     {
       NoEcn = 0,   //!< ECN is not enabled.
-      ClassicEcn   //!< ECN functionality as described in RFC 3168.
+      ClassicEcn,  //!< ECN functionality as described in RFC 3168.
+      EcnPp        //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets.
     } EcnMode_t;
 
 The following are some important ECN parameters
@@ -806,7 +817,7 @@ Enabling ECN
 ^^^^^^^^^^^^
 
 By default, support for ECN is disabled in TCP sockets.  To enable, change
-the value of the attribute ``ns3::TcpSocketBase::EcnMode`` from NoEcn to ClassicEcn.
+the value of the attribute ``ns3::TcpSocketBase::EcnMode`` from NoEcn to ClassicEcn or EcnPp.
 
 ::
 
@@ -821,7 +832,7 @@ ECN capability is negotiated during the three-way TCP handshake:
 
 ::
 
-    if (m_ecnMode == EcnMode_t::ClassicEcn)
+    if (m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
       {
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR);
       }
@@ -835,7 +846,7 @@ ECN capability is negotiated during the three-way TCP handshake:
 
 ::
 
-    if (m_ecnMode == EcnMode_t::ClassicEcn && (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
+    if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp) && (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
       {
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK |TcpHeader::ECE);
         m_ecnState = ECN_IDLE;
@@ -850,7 +861,7 @@ ECN capability is negotiated during the three-way TCP handshake:
 
 ::
 
-    if (m_ecnMode == EcnMode_t::ClassicEcn &&  (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::ECE))
+    if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp) &&  (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::ECE))
       {
         m_ecnState = ECN_IDLE;
       }
@@ -859,12 +870,19 @@ ECN capability is negotiated during the three-way TCP handshake:
         m_ecnState = ECN_DISABLED;
       }
 
+In classicEcn:
 Once the ECN-negotiation is successful, the sender sends data packets with ECT
 bits set in the IP header.
 
 Note: As mentioned in Section 6.1.1 of RFC 3168, ECT bits should not be set
 during ECN negotiation. The ECN negotiation implemented in |ns3| follows
 this guideline.
+
+In EcnPp:
+The receiver should send SYN/ACK packet with ECT bits set in the IP header.
+If the sender of SYN/ACK get congestion feedback, it will adopt ECN+ for congestion response.
+Reduce IW from 10 segments to 1 segment.
+
 
 ECN State Transitions
 ^^^^^^^^^^^^^^^^^^^^^
@@ -897,11 +915,41 @@ been implemented:
 5. The sender should ignore the ECE bits set in the packet arriving out of
    window (Section 6.1.2).
 
+ECN++ compliance
+^^^^^^^^^^^^^^^^
+
+The section specificed the actual behaviour of ECN++ in ns-3
+
+1. If enable EcnPp in ns-3, the following types of packet will carry ECT bit in IP header, including SYN/ACK
+W probe, FIN, RST and re-transmitted packet.
+2. In EcnPp, the sender should do corresponding congestion response if the previous packet carried ECT get congesion response.
+
+SYN/ACK:
+	if the sender of SYN/ACK get congestion feedback, it will adopt ECN+ for congestion response.
+	Reduce IW from 10 segments to 1 segment.
+
+W probe:
+	If the sender of W probe get congestion feedback, there are two situations.
+    situation 1: the r_wnd is still zero, so the next data packet is still W probe;
+	situation 2: the r_wnd is open, the sender can send out data packet.
+	Actually, the situation 1 is rare, because we get the congestion feedback, it means the W probe is in the receiving window.
+	So the congestion response will be postponed until the moment new data packet send out.
+
+FIN and RST:
+	The congestion response for FIN and RST is not required.
+	Bescause, after the sender send out FIN or RST packet, no data will be send out anymore, so no need to do congestion response.
+
+Re-XMT:
+	The congestion response for Re-XMT packet is same as origin data packet.
+	The sender will postpone the congestion response till new data packet sendout.
+
+
 Open issues
 ^^^^^^^^^^^
 
 The following issues are yet to be addressed:
 
+For classic ECN:
 1. Retransmitted packets should not have the CWR bit set (Section 6.1.5).
 
 2. Despite the congestion window size being 1 MSS, the sender should reduce its
@@ -913,6 +961,21 @@ The following issues are yet to be addressed:
 3. Support for separately handling the enabling of ECN on the incoming and
    outgoing TCP sessions (e.g. a TCP may perform ECN echoing but not set the
    ECT codepoints on its outbound data segments).
+
+For ECN++:
+1. The fall-back strategy should be implemented when packet retransmission happens in negotiation phase.
+Now if the sender of SYN/ACK timeout, it will still persist sending out SYN/ACK with ECT in IP header.
+ECN++ draft suggests the fall-back strategy to retransmit only one more ECT SYN/ACK and cache failed connection attempts in chap 3.2.2.3.
+
+2. the TCP data receiver MUST ignore the CE codepoint on incoming segments that fail any validity check.
+Now in ns-3, the validity check just check whether the sequence number fall into the receiving wiondow.
+While in ECN++ draft the validity check in section 5.2 of [RFC5961] is RECOMMENDED
+
+3. Pure ACKs means acknowledgement packet without data.
+ECN++ draft suggest to set ECT in pure ACKs.
+But the logic about congestion response in pure ACKs is not clear. 
+Actually only AccECN will use ECT in pure ACKs..
+So not support ECN for pure ACKs in ECN++ so far.
 
 Validation
 ++++++++++
