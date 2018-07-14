@@ -105,7 +105,7 @@ int main (int argc, char *argv[])
   Config::SetDefault ("ns3::RedQueueDisc::MinTh", DoubleValue (5));
   Config::SetDefault ("ns3::RedQueueDisc::MaxTh", DoubleValue (15));
   Config::SetDefault ("ns3::RedQueueDisc::UseEcn", BooleanValue (useEcn));
-  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("NoEcn"));
+  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue (EcnMode));
 
 
   NS_LOG_INFO ("Create channels.");
