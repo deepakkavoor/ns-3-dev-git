@@ -61,6 +61,7 @@ public:
     SACKPERMITTED = 4,          //!< SACKPERMITTED
     SACK = 5,                   //!< SACK
     TS = 8,                     //!< TS
+    EXPERIMENTAL = 254,         //!< EXPERIMENTAL
     UNKNOWN = 255               //!< not a standardized value; for unknown recv'd options
   };
 

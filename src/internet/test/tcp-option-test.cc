@@ -22,6 +22,8 @@
 #include "ns3/tcp-option.h"
 #include "ns3/tcp-option-winscale.h"
 #include "ns3/tcp-option-ts.h"
+#include "ns3/tcp-option-accecn.h"
+
 
 #include <string.h>
 
@@ -205,6 +207,106 @@ TcpOptionTSTestCase::DoTeardown ()
  * \ingroup internet-test
  * \ingroup tests
  *
+ * \brief TCP AccEcn option Test
+ */
+class TcpOptionAccEcnTestCase : public TestCase
+{
+public:
+
+    /**
+     * \brief Constructor.
+     * \param name Test description.
+     */
+    TcpOptionAccEcnTestCase (std::string name);
+
+    /**
+     * \brief Serialization test.
+     */
+    void TestSerialize ();
+    /**
+     * \brief Deserialization test.
+     */
+    void TestDeserialize ();
+
+private:
+    virtual void DoRun (void);
+    virtual void DoTeardown (void);
+
+    uint32_t m_e0b;      //!< the number of TCP payload bytes in packets marked respectively with the ECT(0)
+    uint32_t m_ceb;     //!< the number of TCP payload bytes in packets marked respectively with the CE
+    uint32_t m_e1b;     //!< the number of TCP payload bytes in packets marked respectively with the ECT(1)
+    Buffer m_buffer;    //!< Buffer.
+};
+
+TcpOptionAccEcnTestCase::TcpOptionAccEcnTestCase (std::string name)
+  : TestCase (name),
+    m_e0b(0),
+    m_ceb(0),
+    m_e1b(0)
+{
+}
+
+void
+TcpOptionAccEcnTestCase::DoRun ()
+{
+  Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable> ();
+
+  for (uint32_t i = 0; i < 1000; ++i)
+  {
+    m_e0b = (x->GetInteger () & 0xFFFFFF);
+    m_ceb = (x->GetInteger () & 0xFFFFFF);
+    m_e1b = (x->GetInteger () & 0xFFFFFF);
+    TestSerialize ();
+    TestDeserialize ();
+  }
+}
+
+void
+TcpOptionAccEcnTestCase::TestSerialize ()
+{
+  TcpOptionAccEcn opt;
+
+  opt.SetE0B (m_e0b);
+  opt.SetCEB (m_ceb);
+  opt.SetE1B (m_e1b);
+
+  NS_TEST_EXPECT_MSG_EQ (m_e0b, opt.GetE0B (), "E0B isn't saved correctly");
+  NS_TEST_EXPECT_MSG_EQ (m_ceb, opt.GetCEB (), "CEB isn't saved correctly");
+  NS_TEST_EXPECT_MSG_EQ (m_e1b, opt.GetE1B (), "E1B isn't saved correctly");
+
+  m_buffer.AddAtStart (opt.GetSerializedSize ());
+
+  opt.Serialize (m_buffer.Begin ());
+}
+
+void
+TcpOptionAccEcnTestCase::TestDeserialize ()
+{
+  TcpOptionAccEcn opt;
+
+  Buffer::Iterator start = m_buffer.Begin ();
+  uint8_t kind = start.PeekU8 ();
+
+  NS_TEST_EXPECT_MSG_EQ (kind, TcpOption::EXPERIMENTAL, "Different kind found");
+
+  opt.Deserialize (start);
+
+  NS_TEST_EXPECT_MSG_EQ (m_e0b, opt.GetE0B (), "Different E0B found");
+  NS_TEST_EXPECT_MSG_EQ (m_ceb, opt.GetCEB (), "Different CEB found");
+  NS_TEST_EXPECT_MSG_EQ (m_e1b, opt.GetE1B (), "Different E1B found");
+}
+
+
+void
+TcpOptionAccEcnTestCase::DoTeardown ()
+{
+}
+
+
+/**
+ * \ingroup internet-test
+ * \ingroup tests
+ *
  * \brief TCP options TestSuite
  */
 class TcpOptionTestSuite : public TestSuite
@@ -218,6 +320,7 @@ public:
         AddTestCase (new TcpOptionWSTestCase ("Testing window scale value", i), TestCase::QUICK);
       }
     AddTestCase (new TcpOptionTSTestCase ("Testing serialization of random values for timestamp"), TestCase::QUICK);
+    AddTestCase (new TcpOptionAccEcnTestCase ("Testing e0b,ceb,e1b for accEcn option"), TestCase::QUICK);
   }
 
 };
