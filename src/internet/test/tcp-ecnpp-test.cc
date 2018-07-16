@@ -76,7 +76,7 @@ public:
   void SetTestCase (uint32_t testCase, SocketWho who);
 
 protected:
-  virtual void SendEmptyPacket (uint8_t flags);
+  virtual void SendEmptyPacket (uint16_t flags);
   virtual void PersistTimeout ();
   virtual Ptr<TcpSocketBase> Fork (void);
   void SetCE(Ptr<Packet> p);
@@ -114,7 +114,7 @@ TcpSocketCongestionRouter::Fork (void)
 }
 
 void
-TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
+TcpSocketCongestionRouter::SendEmptyPacket (uint16_t flags)
 {
   NS_LOG_FUNCTION (this << static_cast<uint32_t> (m_testcase) << static_cast<uint32_t> (flags));
   m_controlPacketSent++;

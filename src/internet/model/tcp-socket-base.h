@@ -758,7 +758,7 @@ protected:
    *
    * \param flags the packet's flags
    */
-  virtual void SendEmptyPacket (uint8_t flags);
+  virtual void SendEmptyPacket (uint16_t flags);
 
   /**
    * \brief Send reset and tear down this socket
