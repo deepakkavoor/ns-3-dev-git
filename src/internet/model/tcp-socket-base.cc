@@ -2059,14 +2059,7 @@ TcpSocketBase::ProcessSynSent (Ptr<Packet> packet, const TcpHeader& tcpHeader)
       /* Check if we received an ECN SYN packet. Change the ECN state of receiver to ECN_IDLE if the traffic is ECN capable and
        * sender has sent ECN SYN packet
        */
-      if (CheckEcnRvdSyn (tcpHeader))
-      {
-        SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
-      }
-      else
-      {
-        SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK);
-      }
+      CheckEcnRvdSyn (tcpHeader);
     }
   else if (tcpflags & (TcpHeader::SYN | TcpHeader::ACK)
            && m_tcb->m_nextTxSequence + SequenceNumber32 (1) == tcpHeader.GetAckNumber ())
@@ -2168,19 +2161,7 @@ TcpSocketBase::ProcessSynRcvd (Ptr<Packet> packet, const TcpHeader& tcpHeader,
       /* Check if we received an ECN SYN packet. Change the ECN state of receiver to ECN_IDLE if sender has sent an ECN SYN
        * packet and the  traffic is ECN Capable
        */
-      if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp) &&
-          (tcpHeader.GetFlags () & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
-        {
-          NS_LOG_INFO ("Received ECN SYN packet");
-          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
-          NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_IDLE");
-          m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
-       }
-      else
-        {
-          m_tcb->m_ecnState = TcpSocketState::ECN_DISABLED;
-          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK);
-        }
+      CheckEcnRvdSyn (tcpHeader);
     }
   else if (tcpflags == (TcpHeader::FIN | TcpHeader::ACK))
     {
@@ -2504,11 +2485,12 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
   // should set ECT in SYN/ACK, pure ACK, FIN, RST
   // pure ACK do not clear so far, temporarily not set ECT in pure ACK
   bool withEct = false;
-  if (m_ecnMode == EcnMode_t::EcnPp && (flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE) ||
-     (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && (flags == (TcpHeader::FIN|TcpHeader::ACK) || flags == TcpHeader::RST))))
+  if (m_ecnMode == EcnMode_t::EcnPp && (((flags & TcpHeader::SYN) && (flags & TcpHeader::ACK)) ||
+     flags & TcpHeader::FIN || flags & TcpHeader::RST))
     {
         withEct = true;
     }
+
 
   AddSocketTags (p, withEct);
 
@@ -2746,14 +2728,7 @@ TcpSocketBase::CompleteFork (Ptr<Packet> p, const TcpHeader& h,
   /* Check if we received an ECN SYN packet. Change the ECN state of receiver to ECN_IDLE if sender has sent an ECN SYN
    * packet and the traffic is ECN Capable
    */
-  if (CheckEcnRvdSyn (h))
-    {
-      SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
-    }
-  else
-    {
-      SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK);
-    }
+  CheckEcnRvdSyn (h);
 }
 
 void
@@ -4305,10 +4280,14 @@ bool TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
     NS_LOG_INFO ("Received ECN SYN packet.");
     NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_IDLE");
     m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
+    SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
     return true;
   }
 
   m_tcb->m_ecnState = TcpSocketState::ECN_DISABLED;
+  NS_LOG_DEBUG (EcnModeName[m_ecnMode] << " -> NoEcn");
+  m_ecnMode = EcnMode_t::NoEcn;
+  SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK);
   return false;
 }
 
@@ -4345,6 +4324,8 @@ bool TcpSocketBase::CheckEcnRvdSynAck (const TcpHeader& tcpHeader)
 
   SendEmptyPacket (TcpHeader::ACK);
   m_tcb->m_ecnState = TcpSocketState::ECN_DISABLED;
+  NS_LOG_DEBUG (EcnModeName[m_ecnMode] << " -> NoEcn");
+  m_ecnMode = EcnMode_t::NoEcn;
   return false;
 }
 
@@ -4357,6 +4338,13 @@ bool TcpSocketBase::CheckEcnRvdEcnEcho (const TcpHeader& tcpHeader)
   }
   return false;
 }
+
+const char* const
+TcpSocketBase::EcnModeName[TcpSocketBase::EcnPp + 1] =
+{
+  "NoEcn", "ClassicEcn", "EcnPp"
+};
+
 
 //RttHistory methods
 RttHistory::RttHistory (SequenceNumber32 s, uint32_t c, Time t)

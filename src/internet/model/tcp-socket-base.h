@@ -495,6 +495,11 @@ public:
     } EcnMode_t;
 
   /**
+   * \brief Literal names of ECN Mode for use in log messages
+   */
+  static const char* const EcnModeName[TcpSocketBase::EcnPp + 1];
+
+  /**
    * \brief Checks if TOS has no ECN bits
    *
    * \return true if TOS does not have any ECN bits set; otherwise false
