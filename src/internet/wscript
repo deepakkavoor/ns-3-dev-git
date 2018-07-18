@@ -413,6 +413,7 @@ def build(bld):
         'model/rip.h',
         'model/rip-header.h',
         'helper/rip-helper.h',
+        'model/tcp-accecn-data.h'
        ]
 
     if bld.env['NSC_ENABLED']:

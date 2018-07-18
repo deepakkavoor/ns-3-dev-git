@@ -32,6 +32,7 @@
 #include "ns3/data-rate.h"
 #include "ns3/node.h"
 #include "ns3/tcp-socket-state.h"
+#include "tcp-accecn-data.h"
 
 namespace ns3 {
 
@@ -478,12 +479,6 @@ public:
       return tos & 0xfc;
     }
 
-  bool CheckEcnRvdSyn (const TcpHeader& tcpHeader);
-
-  bool CheckEcnRvdSynAck (const TcpHeader& tcpHeader);
-
-  bool CheckEcnRvdEcnEcho (const TcpHeader& tcpHeader);
-
   /**
    * \brief ECN Modes
    */
@@ -492,12 +487,13 @@ public:
       NoEcn = 0,   //!< ECN is not enabled.
       ClassicEcn,  //!< ECN functionality as described in RFC 3168.
       EcnPp,       //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets.
+      AccEcn,      //!< More Accurate ECN in enable, by default the function of ECN++ is enabled in AccEcn
     } EcnMode_t;
 
   /**
    * \brief Literal names of ECN Mode for use in log messages
    */
-  static const char* const EcnModeName[TcpSocketBase::EcnPp + 1];
+  static const char* const EcnModeName[TcpSocketBase::AccEcn + 1];
 
   /**
    * \brief Checks if TOS has no ECN bits
@@ -540,9 +536,31 @@ public:
     }
 
   /**
+   * \brief Set Ace field for tcp flags
+   *
+   * \return tcp flags with ace field setting
+   */
+    inline uint16_t SetAceFlags (uint8_t ace) const
+    {
+      uint16_t aceFlags = static_cast<uint16_t> (ace & 0x7);
+      return (aceFlags << 6);
+    }
+
+    /**
+     * \brief Get Ace field from tcp flags
+     *
+     * \return Ace field in tcp flags
+     */
+    inline uint8_t GetAceFlags (uint16_t flags) const
+    {
+      uint8_t ace = (flags >> 6) & 0x7;
+      return ace;
+    }
+
+  /**
    * \brief Set ECN mode to use on the socket
    *
-   * \param ecnMode Mode of ECN. Currently NoEcn and ClassicEcn is supported.
+   * \param ecnMode Mode of ECN. Currently NoEcn, ClassicEcn, EcnPp and AccEcn is supported.
    */
   void SetEcn (EcnMode_t ecnMode);
 
@@ -1179,6 +1197,47 @@ protected:
    */
   void AddSocketTags (const Ptr<Packet> &p, bool withEct=false) const;
 
+  /**
+   * \brief Check ECN state in IP header for ipv4
+   * \param header Ipv4 Header
+   * \param tcpHeader TCP Header
+   * \param tcpPayloadSize TCP payload size
+   */
+  void CheckEcnInIpv4 (const Ipv4Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+
+  /**
+   * \brief Check ECN state in IP header for ipv6
+   * \param header Ipv6 Header
+   * \param tcpHeader TCP Header
+   * \param tcpPayloadSize TCP payload size
+   */
+  void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+
+  /**
+   * \brief Check ECN flag in TCP header when received SYN packet
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdSyn (const TcpHeader& tcpHeader);
+
+  /**
+   * \brief Check ECN flag in TCP header when received SYN/ACK packet
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdSynAck (const TcpHeader& tcpHeader);
+
+  /**
+   * \brief Check ECN flag in TCP header when received last Ack in 3-way handshake
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdLastAck (const TcpHeader& tcpHeader);
+
+  /**
+   * Check ECN state whether ECE is set in TCP header
+   * \param tcpHeader TCP Header
+   * \return true means ECE is set, false means no ECE set
+   */
+  bool IsEcnRvdEce (const TcpHeader& tcpHeader);
+
 protected:
   // Counters and events
   EventId           m_retxEvent     {}; //!< Retransmission event
@@ -1280,6 +1339,7 @@ protected:
 
   // Parameters related to Explicit Congestion Notification
   EcnMode_t                     m_ecnMode    {EcnMode_t::NoEcn};      //!< Socket ECN capability
+  TcpAccEcnData            m_accEcnData;
   TracedValue<SequenceNumber32> m_ecnEchoSeq {0};      //!< Sequence number of the last received ECN Echo
   TracedValue<SequenceNumber32> m_ecnCESeq   {0};      //!< Sequence number of the last received Congestion Experienced
   TracedValue<SequenceNumber32> m_ecnCWRSeq  {0};      //!< Sequence number of the last sent CWR
