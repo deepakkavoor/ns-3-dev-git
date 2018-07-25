@@ -546,16 +546,30 @@ public:
       return (aceFlags << 6);
     }
 
-    /**
-     * \brief Get Ace field from tcp flags
-     *
-     * \return Ace field in tcp flags
-     */
+  /**
+   * \brief Get Ace field from tcp flags
+   *
+   * \return Ace field in tcp flags
+   */
     inline uint8_t GetAceFlags (uint16_t flags) const
     {
       uint8_t ace = (flags >> 6) & 0x7;
       return ace;
     }
+
+  /**
+   * \brief Encode Ace field from r.cep
+   *
+   * \return 3 bit ace to set into tcp flags
+   */
+  uint8_t EncodeAceFlags (uint32_t cepR) const;
+
+  /**
+   * \brief decode s.cep from ace field
+   *
+   * \return s.cep
+   */
+   uint32_t DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const;
 
   /**
    * \brief Set ECN mode to use on the socket
@@ -1212,6 +1226,8 @@ protected:
    * \param tcpPayloadSize TCP payload size
    */
   void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+
+  void UpdateAccEcnData (const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
 
   /**
    * \brief Check ECN flag in TCP header when received SYN packet
