@@ -23,7 +23,7 @@
 
 namespace ns3 {
 
-    class TcpOptionAccEcn : public TcpOption
+    class TcpOptionAccEcn : public TcpOptionExperimental
     {
     public:
         /**
@@ -41,8 +41,7 @@ namespace ns3 {
         virtual uint32_t Deserialize (Buffer::Iterator start);
         virtual uint32_t GetSerializedSize (void) const;
 
-        virtual uint8_t GetKind (void) const;
-        uint16_t GetExID (void) const; //!< magic number is 0xACCE for AccEcn
+        virtual uint16_t GetExID (void) const; //!< magic number is 0xACCE for AccEcn
 
         uint32_t GetE0B (void) const;
         uint32_t GetCEB (void) const;

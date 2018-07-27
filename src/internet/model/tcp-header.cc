@@ -526,6 +526,40 @@ TcpHeader::HasOption (uint8_t kind) const
 }
 
 bool
+TcpHeader::HasExperimentalOption (uint16_t magicNumber) const
+{
+  TcpOptionList::const_iterator i;
+
+  for (i = m_options.begin (); i != m_options.end (); ++i)
+  {
+    if ((*i)->GetKind () == TcpOption::EXPERIMENTAL)
+    {
+      Ptr<const TcpOptionExperimental> option = DynamicCast<const TcpOptionExperimental> (*i);
+      if (option->GetExID() == magicNumber)
+      return true;
+    }
+  }
+  return false;
+}
+
+Ptr<const TcpOption>
+TcpHeader::GetExperimentalOption(uint16_t magicNumber) const
+{
+  TcpOptionList::const_iterator i;
+
+  for (i = m_options.begin (); i != m_options.end (); ++i)
+  {
+    if ((*i)->GetKind () == TcpOption::EXPERIMENTAL)
+    {
+      Ptr<const TcpOptionExperimental> option = DynamicCast<const TcpOptionExperimental> (*i);
+      if (option->GetExID() == magicNumber)
+        return (*i);
+    }
+  }
+  return 0;
+}
+
+bool
 operator== (const TcpHeader &lhs, const TcpHeader &rhs)
 {
   return (

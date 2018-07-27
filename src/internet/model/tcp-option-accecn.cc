@@ -26,7 +26,7 @@ NS_LOG_COMPONENT_DEFINE ("TcpOptionAccEcn");
 NS_OBJECT_ENSURE_REGISTERED (TcpOptionAccEcn);
 
 TcpOptionAccEcn::TcpOptionAccEcn ()
-    : TcpOption (),
+    : TcpOptionExperimental (),
       m_e0b (0),
       m_ceb (0),
       m_e1b (0)
@@ -60,12 +60,6 @@ TcpOptionAccEcn::Print(std::ostream &os) const
     os << "e0b: " << m_e0b << std::endl;
     os << "ceb: " << m_ceb << std::endl;
     os << "e1b: " << m_e1b << std::endl;
-}
-
-uint8_t
-TcpOptionAccEcn::GetKind (void) const
-{
-    return TcpOption::EXPERIMENTAL;
 }
 
 uint32_t
@@ -145,7 +139,7 @@ TcpOptionAccEcn::Deserialize (Buffer::Iterator start)
 uint16_t
 TcpOptionAccEcn::GetExID (void) const
 {
-    return 0xACCE;
+    return TcpOptionExperimental::ACCECN;
 }
 
 uint32_t

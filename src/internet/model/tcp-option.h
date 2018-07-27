@@ -147,6 +147,43 @@ private:
 
 };
 
+/**
+ * \ingroup tcp
+ *
+ * \brief Base class for all kinds of TCP experimental options
+ *
+ * Before an tcp option has its own kind,
+ * it can use kind=EXPERIMENTAL(as in \RFC{6994})
+ * with magic number in its first two content bytes to define a new experimental option
+ */
+class TcpOptionExperimental : public TcpOption
+{
+public:
+    TcpOptionExperimental ();
+    virtual ~TcpOptionExperimental ();
+
+    enum ExID
+    { // the magic number for Experimental option
+      // the magic number is the first two bytes in option content field to differ experimental options
+      ACCECN = 0xACCE,  //!< AccEcn Option
+
+    };
+
+    /**
+     * \brief Get the type ID.
+     * \return the object TypeId
+     */
+    static TypeId GetTypeId (void);
+    virtual TypeId GetInstanceTypeId (void) const;
+    virtual uint8_t GetKind (void) const;
+    /**
+     * \brief Get the `magic number' (as in \RFC{6994}) of this option
+     * \return the magic number in Experimental Option
+     */
+    virtual uint16_t GetExID (void) const = 0;
+};
+
+
 } // namespace ns3
 
 #endif /* TCP_OPTION */

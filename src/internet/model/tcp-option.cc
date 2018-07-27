@@ -197,4 +197,36 @@ TcpOptionUnknown::GetKind (void) const
   return m_kind;
 }
 
+NS_OBJECT_ENSURE_REGISTERED (TcpOptionExperimental);
+
+TypeId
+TcpOptionExperimental::GetTypeId (void)
+{
+  static TypeId tid = TypeId ("ns3::TcpOptionExperimental")
+          .SetParent<Object> ()
+          .SetGroupName ("Internet")
+  ;
+  return tid;
+}
+
+TcpOptionExperimental::TcpOptionExperimental ()
+    : TcpOption()
+{
+}
+
+TcpOptionExperimental::~TcpOptionExperimental ()
+{
+}
+
+TypeId
+TcpOptionExperimental::GetInstanceTypeId (void) const
+{
+  return GetTypeId ();
+}
+
+uint8_t
+TcpOptionExperimental::GetKind (void) const
+{
+  return TcpOption::EXPERIMENTAL;
+}
 } // namespace ns3
