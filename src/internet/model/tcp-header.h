@@ -115,12 +115,6 @@ public:
   void SetFlags (uint16_t flags);
 
   /**
-   * \brief Set ACE field in flags field in TCP header
-   * \param ace the ACE for this TcpHeader
-   */
-  void SetAceFlags (uint8_t ace);
-
-  /**
    * \brief Set the window size
    * \param windowSize the window size for this TcpHeader
    */
@@ -173,12 +167,6 @@ public:
    * \return the flags for this TcpHeader
    */
   uint16_t GetFlags () const;
-
-  /**
-   * \brief Get ACE flags
-   * \param ace the ACE for this TcpHeader
-   */
-  uint8_t GetAceFlags () const;
 
   /**
    * \brief Get the window size

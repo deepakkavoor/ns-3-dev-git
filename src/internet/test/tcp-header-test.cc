@@ -39,9 +39,6 @@ using namespace ns3;
 #define GET_RANDOM_UINT6(RandomVariable) \
   static_cast<uint8_t> (RandomVariable->GetInteger (0, UINT8_MAX >> 2))
 
-#define GET_RANDOM_UINT3(RandomVariable) \
-  static_cast<uint8_t> (RandomVariable->GetInteger (0, UINT8_MAX >> 5))
-
 
 /**
  * \ingroup internet-test
@@ -75,7 +72,6 @@ void TcpHeaderGetSetTestCase::DoRun (void)
   SequenceNumber32 sequenceNumber;  // Sequence number
   SequenceNumber32 ackNumber;       // ACK number
   uint16_t flags;              // Flags (really a uint6_t)
-  uint8_t ace;                // ACE
   uint16_t windowSize;        // Window size
   uint16_t urgentPointer;     // Urgent pointer
   TcpHeader header;
@@ -89,7 +85,6 @@ void TcpHeaderGetSetTestCase::DoRun (void)
       sequenceNumber = SequenceNumber32 (GET_RANDOM_UINT32 (x));
       ackNumber = SequenceNumber32 (GET_RANDOM_UINT32 (x));
       flags = GET_RANDOM_UINT6 (x);
-      ace = GET_RANDOM_UINT3 (x);
       windowSize = GET_RANDOM_UINT16 (x);
       urgentPointer = GET_RANDOM_UINT16 (x);
 
@@ -98,7 +93,6 @@ void TcpHeaderGetSetTestCase::DoRun (void)
       header.SetSequenceNumber (sequenceNumber);
       header.SetAckNumber (ackNumber);
       header.SetFlags (flags);
-      header.SetAceFlags (ace);
       header.SetWindowSize (windowSize);
       header.SetUrgentPointer (urgentPointer);
 
@@ -116,10 +110,8 @@ void TcpHeaderGetSetTestCase::DoRun (void)
                              "Different sequence number found");
       NS_TEST_ASSERT_MSG_EQ (ackNumber, header.GetAckNumber (),
                              "Different ack number found");
-      NS_TEST_ASSERT_MSG_EQ (flags, (header.GetFlags () & 0x3F),
+      NS_TEST_ASSERT_MSG_EQ (flags, header.GetFlags (),
                              "Different flags found");
-      NS_TEST_ASSERT_MSG_EQ (ace, header.GetAceFlags (),
-                             "Different ACE flags found");
       NS_TEST_ASSERT_MSG_EQ (windowSize, header.GetWindowSize (),
                              "Different window size found");
       NS_TEST_ASSERT_MSG_EQ (urgentPointer, header.GetUrgentPointer (),
@@ -140,10 +132,8 @@ void TcpHeaderGetSetTestCase::DoRun (void)
                              "Different sequence number found in deserialized header");
       NS_TEST_ASSERT_MSG_EQ (ackNumber, copyHeader.GetAckNumber (),
                              "Different ack number found in deserialized header");
-      NS_TEST_ASSERT_MSG_EQ (flags, (copyHeader.GetFlags () & 0x3F),
+      NS_TEST_ASSERT_MSG_EQ (flags, copyHeader.GetFlags (),
                              "Different flags found in deserialized header");
-      NS_TEST_ASSERT_MSG_EQ (ace, copyHeader.GetAceFlags (),
-                             "Different ACE flags found in deserialized header");
       NS_TEST_ASSERT_MSG_EQ (windowSize, copyHeader.GetWindowSize (),
                              "Different window size found in deserialized header");
       NS_TEST_ASSERT_MSG_EQ (urgentPointer, copyHeader.GetUrgentPointer (),

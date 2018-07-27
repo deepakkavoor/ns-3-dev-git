@@ -118,13 +118,6 @@ TcpHeader::SetFlags (uint16_t flags)
 }
 
 void
-TcpHeader::SetAceFlags (uint8_t ace)
-{
-  uint16_t aceFlags = static_cast<uint16_t> (ace & 0x7);
-  m_flags = (aceFlags << 6) | (m_flags & 0x3F);
-}
-
-void
 TcpHeader::SetWindowSize (uint16_t windowSize)
 {
   m_windowSize = windowSize;
@@ -182,13 +175,6 @@ uint16_t
 TcpHeader::GetFlags () const
 {
   return m_flags;
-}
-
-uint8_t
-TcpHeader::GetAceFlags () const
-{
-  uint8_t ace = (m_flags >> 6) & 0x7;
-  return ace;
 }
 
 uint16_t
