@@ -571,6 +571,10 @@ public:
    */
    uint32_t DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const;
 
+   void ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t newlyAckedB);
+
+   void AddOptionAccEcn (TcpHeader& header);
+
   /**
    * \brief Set ECN mode to use on the socket
    *
@@ -1226,7 +1230,7 @@ protected:
    */
   void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
 
-  void UpdateAccEcnData (const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+  void DecodeAccEcnData (const TcpHeader& tcpHeader);
 
   /**
    * \brief Check ECN flag in TCP header when received SYN packet

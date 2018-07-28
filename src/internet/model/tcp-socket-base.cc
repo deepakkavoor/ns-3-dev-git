@@ -56,6 +56,7 @@
 #include "tcp-option-ts.h"
 #include "tcp-option-sack-permitted.h"
 #include "tcp-option-sack.h"
+#include "tcp-option-accecn.h"
 #include "tcp-congestion-ops.h"
 #include "tcp-recovery-ops.h"
 
@@ -1237,8 +1238,6 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, const Address &fromAddress,
         }
     }
 
-  UpdateAccEcnData (tcpHeader, packet->GetSize ());
-
   m_rxTrace (packet, tcpHeader, this);
 
   if (tcpHeader.GetFlags () & TcpHeader::SYN)
@@ -1314,7 +1313,10 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, const Address &fromAddress,
       UpdateWindowSize (tcpHeader);
     }
 
-
+  if (m_connected && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    DecodeAccEcnData (tcpHeader);
+  }
   if (m_rWnd.Get () == 0 && m_persistEvent.IsExpired ())
     { // Zero window: Enter persist state to send 1 byte to probe
       NS_LOG_LOGIC (this << " Enter zerowindow persist state");
@@ -2453,8 +2455,8 @@ TcpSocketBase::SendEmptyPacket (uint16_t flags)
   {
     withEct = true;
   }
-
   AddSocketTags (p, withEct);
+
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
@@ -2486,7 +2488,16 @@ TcpSocketBase::SendEmptyPacket (uint16_t flags)
   uint16_t windowSize = AdvertisedWindowSize ();
   bool hasSyn = flags & TcpHeader::SYN;
   bool hasFin = flags & TcpHeader::FIN;
+  bool hasAck = flags & TcpHeader::ACK;
   bool isAck = flags == TcpHeader::ACK;
+
+  bool addAccEcnOption = (hasSyn && hasAck) || (hasAck && !m_connected) || !m_accEcnData.m_useDelAckAccEcn;
+  if (m_ecnMode == EcnMode_t::AccEcn && addAccEcnOption)
+  {
+    AddOptionAccEcn(header);
+    m_accEcnData.m_useDelAckAccEcn = true;
+  }
+
   if (hasSyn)
     {
       if (m_winScalingEnabled)
@@ -2906,6 +2917,13 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
   {
     header.SetFlags (flags);
   }
+
+  if (!m_accEcnData.m_useDelAckAccEcn && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    AddOptionAccEcn(header);
+    m_accEcnData.m_useDelAckAccEcn = true;
+  }
+
   header.SetSequenceNumber (seq);
   header.SetAckNumber (m_rxBuffer->NextRxSequence ());
   if (m_endPoint)
@@ -3268,6 +3286,13 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
           return;
         }
     }
+
+  if (m_ecnMode == EcnMode_t::AccEcn && !m_accEcnData.m_useDelAckAccEcn)
+    { // Change Change-Triggered ACKs
+      SendEmptyPacket (TcpHeader::ACK);
+      return;
+    }
+
   // Now send a new ACK packet acknowledging all received and delivered data
   if (m_rxBuffer->Size () > m_rxBuffer->Available () || m_rxBuffer->NextRxSequence () > expectedSeq + p->GetSize ())
     { // A gap exists in the buffer, or we filled a gap: Always ACK
@@ -4269,17 +4294,43 @@ void TcpSocketBase::CheckEcnInIpv4 (const Ipv4Header& header, const TcpHeader& t
   }
   else if (m_ecnMode == EcnMode_t::AccEcn)
   {
+    bool useDelAckAccEcn = true;
     if (header.GetEcn() == Ipv4Header::ECN_CE)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_CE_RCVD;
     }
     else if (header.GetEcn() == Ipv4Header::ECN_ECT0)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_ECT0_RCVD;
     }
     else if (header.GetEcn() == Ipv4Header::ECN_ECT1)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_ECT1_RCVD;
+    }
+
+    if (m_connected)
+    { // Update receiver counters
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD)
+      {
+        m_accEcnData.m_ecnCepR += 1;
+        m_accEcnData.m_ecnCebR += tcpPayloadSize;
+      }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD)
+      {
+        m_accEcnData.m_ecnE0bR += tcpPayloadSize;
+      }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD)
+      {
+        m_accEcnData.m_ecnE1bR += tcpPayloadSize;
+      }
+
+      if (tcpPayloadSize > 0)
+      {
+        m_accEcnData.m_useDelAckAccEcn = useDelAckAccEcn;
+      }
     }
   }
 }
@@ -4307,64 +4358,111 @@ void TcpSocketBase::CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& t
   }
   else if (m_ecnMode == EcnMode_t::AccEcn)
   {
+    bool useDelAckAccEcn = true;
     if (header.GetEcn() == Ipv6Header::ECN_CE)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_CE_RCVD;
     }
     else if (header.GetEcn() == Ipv6Header::ECN_ECT0)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_ECT0_RCVD;
     }
     else if (header.GetEcn() == Ipv6Header::ECN_ECT1)
     {
+      useDelAckAccEcn = m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD || false;
       m_tcb->m_ecnState = TcpSocketState::ECN_ECT1_RCVD;
+    }
+
+    if (m_connected)
+    { // Update receiver counters
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD)
+      {
+        m_accEcnData.m_ecnCepR += 1;
+        m_accEcnData.m_ecnCebR += tcpPayloadSize;
+      }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD)
+      {
+        m_accEcnData.m_ecnE0bR += tcpPayloadSize;
+      }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD)
+      {
+        m_accEcnData.m_ecnE1bR += tcpPayloadSize;
+      }
+
+      if (tcpPayloadSize > 0)
+      {
+        m_accEcnData.m_useDelAckAccEcn = useDelAckAccEcn;
+      }
     }
   }
 }
 
-void TcpSocketBase::UpdateAccEcnData (const TcpHeader &tcpHeader, uint32_t tcpPayloadSize)
+void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
 {
-  if (!(tcpHeader.GetFlags() & TcpHeader::SYN) && m_connected && m_ecnMode == EcnMode_t::AccEcn)
+  NS_ASSERT (m_connected);
+  NS_ASSERT (m_ecnMode == EcnMode_t::AccEcn);
+
+  bool hasOptionTS = tcpHeader.HasOption (TcpOption::TS);
+  bool hasOptionSack = tcpHeader.HasOption (TcpOption::SACK);
+  bool hasOptionAccEcn =tcpHeader.HasExperimentalOption (TcpOptionExperimental::ACCECN);
+
+  uint32_t newlyAckedB = tcpHeader.GetAckNumber () - m_highRxAckMark;
+  if (hasOptionSack)
   {
-    // Update receiver counters
-    if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD)
-    {
-      m_accEcnData.m_ecnCepR += 1;
-      m_accEcnData.m_ecnCebR += tcpPayloadSize;
-    }
-    else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD)
-    {
-      m_accEcnData.m_ecnE0bR += tcpPayloadSize;
-    }
-    else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD)
-    {
-      m_accEcnData.m_ecnE1bR += tcpPayloadSize;
-    }
-    m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
+    Ptr<const TcpOptionSack> sackOption = DynamicCast<const TcpOptionSack> (tcpHeader.GetOption (TcpOption::SACK));
+    newlyAckedB = ProcessOptionSack (sackOption);
+  }
 
-    // Update sender counters
-    uint8_t ace = GetAceFlags (tcpHeader.GetFlags());
-    uint32_t newlyAckedB = tcpHeader.GetAckNumber () - m_highRxAckMark;
-    bool newlyAckedT = true;
-    if (m_timestampEnabled && tcpHeader.HasOption (TcpOption::TS))
+  bool newlyAckedT = true;
+  if (hasOptionTS)
+  {
+    Ptr<const TcpOptionTS> ts = DynamicCast<const TcpOptionTS> (tcpHeader.GetOption (TcpOption::TS));
+    if (m_tcb->m_rcvTimestampValue > ts->GetTimestamp ())
     {
-      Ptr<const TcpOptionTS> ts = DynamicCast<const TcpOptionTS> (tcpHeader.GetOption (TcpOption::TS));
-      if (m_tcb->m_rcvTimestampValue > ts->GetTimestamp ())
-      {
-        newlyAckedT = false;
-      }
+      newlyAckedT = false;
     }
-    else
+  }
+  else
+  {
+    newlyAckedT = tcpHeader.GetSequenceNumber() >= m_rxBuffer->NextRxSequence () || false;
+  }
+
+  // Update sender counters
+  uint8_t ace = GetAceFlags (tcpHeader.GetFlags());
+  uint8_t DIVACE = 2^3;
+  uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
+
+  if (!hasOptionAccEcn)
+  {
+    // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
+    if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
     {
-      newlyAckedT = tcpHeader.GetSequenceNumber() >= m_rxBuffer->NextRxSequence () ? true : false;
+      uint32_t cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
+      uint32_t cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
+      m_accEcnData.m_ecnCepS += cepDsafer;
     }
 
-    m_accEcnData.m_ecnCepS += DecodeAceFlags (ace, newlyAckedB, newlyAckedT);
+    // based on AccECN draft A.3, use ACE to estimate s.ceb without AccEcn option
+
+  }
+  else
+  {
+    Ptr<const TcpOption> option = tcpHeader.GetExperimentalOption (TcpOptionExperimental::ACCECN);
+    // based on AccECN draft A.2.2, decode ACE field with AccEcn Option
+
+    // based on AccEcn draft A.1, decode AccEcn Option
+    ProcessOptionAccEcn(option, newlyAckedB);
+
+    // based on AccEcn draft 3.2.7.5. consistency checking when AccEcn Option exists
+
   }
 }
 void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
 {
   NS_ASSERT ((tcpHeader.GetFlags () & TcpHeader::SYN) && !(tcpHeader.GetFlags () & TcpHeader::ACK));
+  NS_ASSERT (!m_connected);
 
   if (m_ecnMode == EcnMode_t::AccEcn) // Receiver is AccEcn
   {
@@ -4377,19 +4475,16 @@ void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
       // send out SYN/ACK based on ECT field at IP header in SYN packet
       if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN
       {
-        m_accEcnData.m_ecnCepR = (m_accEcnData.m_ecnCepR + 1) % 8;
+        m_accEcnData.m_ecnCepR += 1;
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR | TcpHeader::AE);
-        m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN
       {
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::AE);
-        m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD) // ECT1 on SYN
       {
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE | TcpHeader::CWR);
-        m_tcb->m_ecnState = TcpSocketState::ECN_IDLE;
       }
       else // NOT-ECT on SYN
       {
@@ -4564,6 +4659,11 @@ void TcpSocketBase::CheckEcnRvdLastAck (const TcpHeader& tcpHeader)
     {
       m_tcb->m_isEcnBitFlipped = true;
     }
+
+    if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on Last ACK
+    {
+      m_accEcnData.m_ecnCepR += 1;
+    }
   }
 
 }
@@ -4607,6 +4707,47 @@ uint32_t TcpSocketBase::DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool 
   cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
   return cepDsafer;
 }
+
+void
+TcpSocketBase::AddOptionAccEcn (TcpHeader& header)
+{
+  NS_LOG_FUNCTION (this << header);
+  bool isSyn = (header.GetFlags() & TcpHeader::SYN) && !(header.GetFlags() & TcpHeader::ACK);
+  NS_ASSERT (!isSyn);
+
+  Ptr<TcpOptionAccEcn> option = CreateObject<TcpOptionAccEcn> ();
+  uint32_t DIVOPT = 2^24;
+  option->SetE0B (m_accEcnData.m_ecnE0bR % DIVOPT);
+  option->SetCEB (m_accEcnData.m_ecnCebR % DIVOPT);
+  option->SetE1B (m_accEcnData.m_ecnE1bR % DIVOPT);
+  header.AppendOption (option);
+
+  NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData.m_ecnE0bR % DIVOPT
+                                << " r.ceb=" << m_accEcnData.m_ecnCebR % DIVOPT
+                                << " r.e1b=" << m_accEcnData.m_ecnE1bR % DIVOPT);
+}
+
+void
+TcpSocketBase::ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t newlyAckedB)
+{
+  Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
+  NS_LOG_FUNCTION (this << option);
+  uint32_t DIVOPT = 2^24;
+
+  if (newlyAckedB > 0)
+  {
+    uint32_t e0bD = (accEcnOption->GetE0B() + DIVOPT - (m_accEcnData.m_ecnE0bS % DIVOPT)) % DIVOPT;
+    m_accEcnData.m_ecnE0bS += e0bD;
+
+    uint32_t cebD = (accEcnOption->GetCEB() + DIVOPT - (m_accEcnData.m_ecnCebS % DIVOPT)) % DIVOPT;
+    m_accEcnData.m_ecnCebS += cebD;
+
+    uint32_t e1bD = (accEcnOption->GetE1B() + DIVOPT - (m_accEcnData.m_ecnE1bS % DIVOPT)) % DIVOPT;
+    m_accEcnData.m_ecnE1bS += e1bD;
+  }
+
+}
+
 
 const char* const
 TcpSocketBase::EcnModeName[TcpSocketBase::AccEcn + 1] =

@@ -27,7 +27,11 @@ class TcpAccEcnData
 {
 public:
   // Default copy-constructor, destructor
-  TcpAccEcnData () : m_ecnCepS(0), m_ecnCebS(0), m_ecnE0bS(0), m_ecnE1bS(0), m_ecnCepR(0), m_ecnCebR(0), m_ecnE0bR(0), m_ecnE1bR(0), m_isIniS(false), m_isIniR(false) {};
+  TcpAccEcnData () :
+      m_ecnCepS (0), m_ecnCebS (0), m_ecnE0bS (0), m_ecnE1bS (0),
+      m_ecnCepR (0), m_ecnCebR (0), m_ecnE0bR (0), m_ecnE1bR (0),
+      m_useDelAckAccEcn (true), m_isIniS (false), m_isIniR (false)
+  {};
 
   void IniSenderCounters () { if(!m_isIniS) { m_isIniS = true; m_ecnCepS = 5; m_ecnE0bS = 1; m_ecnCebS = 0; m_ecnE1bS = 0;} }
   void IniReceiverCounters () { if(!m_isIniR) { m_isIniR = true; m_ecnCepR = 5; m_ecnE0bR = 1; m_ecnCebR = 0; m_ecnE1bR = 0;} }
@@ -40,6 +44,7 @@ public:
   uint32_t   m_ecnCebR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the CE
   uint32_t   m_ecnE0bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(0)
   uint32_t   m_ecnE1bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(1)
+  bool m_useDelAckAccEcn  {true};
 
 private:
   bool       m_isIniS     {false};
