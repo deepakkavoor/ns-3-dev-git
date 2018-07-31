@@ -4434,29 +4434,57 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
   uint8_t DIVACE = 2^3;
   uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
 
+  uint32_t cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
+  uint32_t cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
+
   if (!hasOptionAccEcn)
   {
     // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
     if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
     {
-      uint32_t cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
-      uint32_t cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
       m_accEcnData.m_ecnCepS += cepDsafer;
     }
 
     // based on AccECN draft A.3, use ACE to estimate s.ceb without AccEcn option
+    uint32_t byteInFlight = BytesInFlight();
+    uint32_t packetInFlight = 1; //TDB
+    uint32_t cebD = cepDsafer * (byteInFlight/packetInFlight);
+    m_accEcnData.m_ecnCebS += cebD;
 
   }
   else
   {
     Ptr<const TcpOption> option = tcpHeader.GetExperimentalOption (TcpOptionExperimental::ACCECN);
-    // based on AccECN draft A.2.2, decode ACE field with AccEcn Option
-
     // based on AccEcn draft A.1, decode AccEcn Option
     ProcessOptionAccEcn(option, newlyAckedB);
+    uint32_t cebD= m_accEcnData.m_ecnCebS;
 
     // based on AccEcn draft 3.2.7.5. consistency checking when AccEcn Option exists
+    if (cepDsafer == 0 && cebD >0)
+    { // inconsistency happens between ACE field and AccEcn Option
+      // the Data Sender MUST disable sending ECN-capable packets
+      // for the remainder of the half-connection
+      // by setting the IP/ECN field in all subsequent packets to Not-ECT.
 
+      // TBD
+      return;
+    }
+
+    // based on AccECN draft A.2.2, decode ACE field with AccEcn Option
+    int SAFETY_FACTOR = 2;
+    if (cepDsafer > cepD)
+    {
+      uint32_t s = cebD/cepD;
+      if (s < m_tcb->m_segmentSize)
+      {
+        uint32_t sSafer = cebD/cepDsafer;
+        if (sSafer < m_tcb->m_segmentSize/SAFETY_FACTOR)
+        {
+          cepDsafer = cepD;
+        }
+      }
+    }
+    m_accEcnData.m_ecnCepS += cepDsafer;
   }
 }
 void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
