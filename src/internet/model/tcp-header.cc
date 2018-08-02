@@ -391,6 +391,17 @@ TcpHeader::Deserialize (Buffer::Iterator start)
         {
           op = TcpOption::CreateOption (kind);
         }
+      else if (kind == TcpOption::EXPERIMENTAL)
+        {
+            // the magic number lies in the first 2 bytes at the option content field
+            // there need to skip two bytes (kind + length) to reach the option content field
+          uint16_t magicNumber = TcpOptionExperimental::ACCECN;
+          if (TcpOptionExperimental::IsExIDKnown (magicNumber))
+          {
+            op = TcpOptionExperimental::CreateOptionExperimental (magicNumber);
+          }
+//          op = CreateObject<TcpOptionAccEcn> ();
+        }
       else
         {
           op = TcpOption::CreateOption (TcpOption::UNKNOWN);

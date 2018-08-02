@@ -24,7 +24,7 @@
 #include "tcp-option-ts.h"
 #include "tcp-option-sack-permitted.h"
 #include "tcp-option-sack.h"
-
+#include "tcp-option-accecn.h"
 #include "ns3/type-id.h"
 #include "ns3/log.h"
 
@@ -107,7 +107,7 @@ TcpOption::IsKindKnown (uint8_t kind)
     case SACKPERMITTED:
     case SACK:
     case TS:
-    case EXPERIMENTAL:
+//    case EXPERIMENTAL:
       // Do not add UNKNOWN here
       return true;
     }
@@ -229,4 +229,43 @@ TcpOptionExperimental::GetKind (void) const
 {
   return TcpOption::EXPERIMENTAL;
 }
+
+bool
+TcpOptionExperimental::IsExIDKnown (uint16_t magicNumber)
+{
+  switch (magicNumber)
+  {
+    case ACCECN:
+      return true;
+  }
+  return false;
+}
+
+Ptr<TcpOption>
+TcpOptionExperimental::CreateOptionExperimental (uint16_t exid)
+{
+  struct exidToTid
+  {
+      TcpOptionExperimental::ExID exid;
+      TypeId tid;
+  };
+
+  static ObjectFactory objectFactory;
+  static exidToTid toTid[] =
+    {
+      { TcpOptionExperimental::ACCECN,           TcpOptionAccEcn::GetTypeId () },
+    };
+
+  for (unsigned int i = 0; i < sizeof (toTid) / sizeof (exidToTid); ++i)
+  {
+    if (toTid[i].exid == exid)
+    {
+      objectFactory.SetTypeId (toTid[i].tid);
+      return objectFactory.Create<TcpOption> ();
+    }
+  }
+  return CreateObject<TcpOptionUnknown> ();
+}
+
+
 } // namespace ns3

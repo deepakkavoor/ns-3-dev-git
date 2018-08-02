@@ -181,6 +181,8 @@ public:
      * \return the magic number in Experimental Option
      */
     virtual uint16_t GetExID (void) const = 0;
+    static bool IsExIDKnown (uint16_t magicNumber);
+    static Ptr<TcpOption> CreateOptionExperimental (uint16_t exid);
 };
 
 
