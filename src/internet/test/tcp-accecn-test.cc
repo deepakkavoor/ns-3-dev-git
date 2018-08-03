@@ -1,3 +1,4 @@
+
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
  * Copyright (c) 2018 Tsinghua University
@@ -37,6 +38,7 @@
 #include "ns3/tcp-tx-buffer.h"
 #include "ns3/tcp-rx-buffer.h"
 #include "ns3/rtt-estimator.h"
+#include "ns3/tcp-option-accecn.h"
 
 namespace ns3 {
 
@@ -49,7 +51,7 @@ public:
 
     TcpSocketTestAccEcn () : TcpSocketMsgBase ()
     {
-      m_controlPacketSent = 0;
+      m_dataPacketSent = 0;
     }
 
     TcpSocketTestAccEcn (const TcpSocketTestAccEcn &other)
@@ -69,14 +71,14 @@ public:
 
 protected:
     virtual void SendEmptyPacket (uint16_t flags);
+    virtual uint32_t SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool withAck);
     virtual Ptr<TcpSocketBase> Fork (void);
     void SetCE (Ptr<Packet> p);
-    void SetECT0 (Ptr<Packet> p);
     void SetECT1 (Ptr<Packet> p);
     void SetNotECT (Ptr<Packet> p);
 
 private:
-    uint32_t m_controlPacketSent;
+    uint32_t m_dataPacketSent;
     uint32_t m_testcase;
     SocketWho m_who;
 };
@@ -119,20 +121,6 @@ void
 TcpSocketTestAccEcn::SetECT1(Ptr<Packet> p)
 {
   uint8_t ipTos = MarkEcnEct1(GetIpTos());
-
-  SocketIpTosTag ipTosTag;
-  ipTosTag.SetTos (ipTos);
-  p->ReplacePacketTag (ipTosTag);
-
-  SocketIpv6TclassTag ipTclassTag;
-  ipTclassTag.SetTclass (ipTos);
-  p->ReplacePacketTag (ipTclassTag);
-}
-
-void
-TcpSocketTestAccEcn::SetECT0(Ptr<Packet> p)
-{
-  uint8_t ipTos = MarkEcnEct0(GetIpTos());
 
   SocketIpTosTag ipTosTag;
   ipTosTag.SetTos (ipTos);
@@ -302,9 +290,9 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
 
   m_txTrace (p, header, this);
 
-  if (hasSyn && !hasAck && m_who == SENDER)
+  if (hasSyn && !hasAck && m_who == SENDER) // SYN
   {
-    if (m_testcase == 8)
+    if (m_testcase == 8 || m_testcase == 11)
     {
       SetCE(p);
     }
@@ -318,9 +306,9 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
     }
   }
 
-  if (hasSyn && hasAck && m_who == RECEIVER)
+  if (hasSyn && hasAck && m_who == RECEIVER) // SYN + ACK
   {
-    if (m_testcase == 8)
+    if (m_testcase == 8 || m_testcase == 11)
     {
       SetCE(p);
     }
@@ -331,6 +319,14 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
     else if (m_testcase == 10)
     {
       SetNotECT(p);
+    }
+  }
+
+  if (!hasSyn && hasAck && !m_connected && m_who == SENDER) // LastAck
+  {
+    if (m_testcase == 11)
+    {
+      SetCE(p);
     }
   }
 
@@ -355,6 +351,175 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
   }
 }
 
+uint32_t
+TcpSocketTestAccEcn::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool withAck)
+{
+  NS_LOG_FUNCTION (this << seq << maxSize << withAck);
+
+  bool isRetransmission = false;
+  if (seq != m_tcb->m_highTxMark)
+  {
+    isRetransmission = true;
+  }
+
+  Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq);
+  uint32_t sz = p->GetSize (); // Size of packet
+  uint16_t flags = withAck ? TcpHeader::ACK : 0;
+  uint32_t remainingData = m_txBuffer->SizeFromSequence (seq + SequenceNumber32 (sz));
+
+  if (m_tcb->m_pacing)
+  {
+    NS_LOG_INFO ("Pacing is enabled");
+    if (m_pacingTimer.IsExpired ())
+    {
+      NS_LOG_DEBUG ("Current Pacing Rate " << m_tcb->m_currentPacingRate);
+      NS_LOG_DEBUG ("Timer is in expired state, activate it " << m_tcb->m_currentPacingRate.CalculateBytesTxTime (sz));
+      m_pacingTimer.Schedule (m_tcb->m_currentPacingRate.CalculateBytesTxTime (sz));
+    }
+    else
+    {
+      NS_LOG_INFO ("Timer is already in running state");
+    }
+  }
+
+  if (withAck)
+  {
+    m_delAckEvent.Cancel ();
+    m_delAckCount = 0;
+  }
+
+  // Classic ECN: Sender should reduce the Congestion Window as a response to receiver's ECN Echo notification only once per window
+  // ECN++: Sender should reduce the Congestion Window even for the retransmission packet
+  bool isRequiredCWR = (m_ecnMode == EcnMode_t::ClassicEcn && !isRetransmission) || m_ecnMode == EcnMode_t::EcnPp;
+  if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get () && isRequiredCWR)
+  {
+    NS_LOG_INFO ("Backoff mechanism by reducing CWND  by half because we've received ECN Echo");
+    m_tcb->m_cWnd = std::max (m_tcb->m_cWnd.Get () / 2, m_tcb->m_segmentSize);
+    m_tcb->m_ssThresh = m_tcb->m_cWnd;
+    m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+    flags |= TcpHeader::CWR;
+    m_ecnCWRSeq = seq;
+    NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_CWR_SENT");
+    m_tcb->m_ecnState = TcpSocketState::ECN_CWR_SENT;
+    NS_LOG_INFO ("CWR flags set");
+    NS_LOG_DEBUG (TcpSocketState::TcpCongStateName[m_tcb->m_congState] << " -> CA_CWR");
+    if (m_tcb->m_congState == TcpSocketState::CA_OPEN)
+    {
+      m_congestionControl->CongestionStateSet (m_tcb, TcpSocketState::CA_CWR);
+      m_tcb->m_congState = TcpSocketState::CA_CWR;
+    }
+  }
+
+  // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
+  // if use ECN++ to reinforce classic ECN RFC 3618
+  // should set ECT in Re-XMT
+  bool withEct = isRetransmission;
+  AddSocketTags (p, withEct);
+
+  if (m_closeOnEmpty && (remainingData == 0))
+  {
+    flags |= TcpHeader::FIN;
+    if (m_state == ESTABLISHED)
+    { // On active close: I am the first one to send FIN
+      NS_LOG_DEBUG ("ESTABLISHED -> FIN_WAIT_1");
+      m_state = FIN_WAIT_1;
+    }
+    else if (m_state == CLOSE_WAIT)
+    { // On passive close: Peer sent me FIN already
+      NS_LOG_DEBUG ("CLOSE_WAIT -> LAST_ACK");
+      m_state = LAST_ACK;
+    }
+  }
+  TcpHeader header;
+
+  if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
+  {
+    NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    header.SetFlags (flags | aceFlags);
+  }
+  else
+  {
+    header.SetFlags (flags);
+  }
+
+  if (!m_accEcnData.m_useDelAckAccEcn && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    AddOptionAccEcn(header);
+    m_accEcnData.m_useDelAckAccEcn = true;
+  }
+
+  header.SetSequenceNumber (seq);
+  header.SetAckNumber (m_rxBuffer->NextRxSequence ());
+  if (m_endPoint)
+  {
+    header.SetSourcePort (m_endPoint->GetLocalPort ());
+    header.SetDestinationPort (m_endPoint->GetPeerPort ());
+  }
+  else
+  {
+    header.SetSourcePort (m_endPoint6->GetLocalPort ());
+    header.SetDestinationPort (m_endPoint6->GetPeerPort ());
+  }
+  header.SetWindowSize (AdvertisedWindowSize ());
+  AddOptions (header);
+
+  if (m_retxEvent.IsExpired ())
+  {
+    // Schedules retransmit timeout. m_rto should be already doubled.
+
+    NS_LOG_LOGIC (this << " SendDataPacket Schedule ReTxTimeout at time " <<
+                       Simulator::Now ().GetSeconds () << " to expire at time " <<
+                       (Simulator::Now () + m_rto.Get ()).GetSeconds () );
+    m_retxEvent = Simulator::Schedule (m_rto, &TcpSocketTestAccEcn::ReTxTimeout, this);
+  }
+
+  m_txTrace (p, header, this);
+
+  m_dataPacketSent++;
+  if (m_who == SENDER && m_dataPacketSent == 1) // first data segment
+  {
+    if (m_testcase == 11)
+    {
+      SetCE(p);
+    }
+  }
+
+  if (m_endPoint)
+  {
+    m_tcp->SendPacket (p, header, m_endPoint->GetLocalAddress (),
+                       m_endPoint->GetPeerAddress (), m_boundnetdevice);
+    NS_LOG_DEBUG ("Send segment of size " << sz << " with remaining data " <<
+                                          remainingData << " via TcpL4Protocol to " <<  m_endPoint->GetPeerAddress () <<
+                                          ". Header " << header);
+  }
+  else
+  {
+    m_tcp->SendPacket (p, header, m_endPoint6->GetLocalAddress (),
+                       m_endPoint6->GetPeerAddress (), m_boundnetdevice);
+    NS_LOG_DEBUG ("Send segment of size " << sz << " with remaining data " <<
+                                          remainingData << " via TcpL4Protocol to " <<  m_endPoint6->GetPeerAddress () <<
+                                          ". Header " << header);
+  }
+
+  UpdateRttHistory (seq, sz, isRetransmission);
+
+  // Update bytes sent during recovery phase
+  if(m_tcb->m_congState == TcpSocketState::CA_RECOVERY)
+  {
+    m_recoveryOps->UpdateBytesSent (sz);
+  }
+
+  // Notify the application of the data being sent unless this is a retransmit
+  if (seq + sz > m_tcb->m_highTxMark)
+  {
+    Simulator::ScheduleNow (&TcpSocketTestAccEcn::NotifyDataSent, this,
+                            (seq + sz - m_tcb->m_highTxMark.Get ()));
+  }
+  // Update highTxMark
+  m_tcb->m_highTxMark = std::max (seq + sz, m_tcb->m_highTxMark.Get ());
+  return sz;
+}
 
 class TcpAccEcnTest : public TcpGeneralTest
 {
@@ -445,6 +610,7 @@ void
 TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
 {
   NS_LOG_FUNCTION(this << m_testcase << who);
+  bool hasOptionAccEcn = h.HasExperimentalOption (TcpOptionExperimental::ACCECN);
 
   if (who == RECEIVER)
   {
@@ -475,6 +641,7 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
       NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::ACK), 0, "ACK should be received as second message at receiver");
       if (m_testcase >= 7)
       {
+        // negotiation test
         uint8_t ace = (h.GetFlags() >> 6) & 0x7;
         if (m_testcase == 7)
         {
@@ -492,6 +659,9 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
         {
           NS_TEST_ASSERT_MSG_EQ (ace - 0b010, 0, "AccEcn last ack test fail for test case 10");
         }
+
+        // AccEcn option test
+        NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
       }
     } // End Last Ack test in tcp header
 
@@ -504,6 +674,7 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
     if (m_senderReceived == 1) // SYN+ACK
     {
       NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::SYN) && ((h.GetFlags ()) & TcpHeader::ACK), 0, "SYN+ACK received as first message at sender");
+      // negotiation test
       if (m_testcase == 1 || m_testcase == 4)
       {
         NS_TEST_ASSERT_MSG_EQ (((h.GetFlags () & TcpHeader::ECE) || (h.GetFlags () & TcpHeader::CWR) || (h.GetFlags () & TcpHeader::AE)),
@@ -534,7 +705,13 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
         NS_TEST_ASSERT_MSG_NE (!(h.GetFlags () & TcpHeader::ECE) && (h.GetFlags () & TcpHeader::CWR) && !(h.GetFlags () & TcpHeader::AE),
                                0, "AccEcn SYN+ACK test fail for test case 10");
       }
-    } // End SYN test in tcp header
+
+      // AccEcn Option test
+      if (m_testcase >=7)
+      {
+        NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in SYN+ACK");
+      }
+    } // End SYN+ACK test in tcp header
 
   }// End test for who == SENDER
 }
@@ -546,12 +723,44 @@ void TcpAccEcnTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho
   {
     m_senderSent++;
     NS_LOG_DEBUG("SENDER sent: " << m_senderSent << " Flags: " << h.GetFlags());
+    if (m_testcase == 11)
+    {
+      // ACE Encoding test
+      if (m_senderSent == 3 || m_senderSent == 4 || m_senderSent == 5) // the packet after connection established
+      {
+        uint8_t ace = (h.GetFlags() >> 6) & 0x7;
+        NS_TEST_ASSERT_MSG_EQ (ace - 0b110, 0, "ACE encoding test: should be 0b110");
+      }
+    }
   }
 
   if (who == RECEIVER)
   {
     m_receiverSent++;
     NS_LOG_DEBUG("RECEIVER sent: " << m_receiverSent << " Flags: " << h.GetFlags());
+    if (m_testcase == 11)
+    {
+      // ACE Encoding test
+      if (m_receiverSent == 2)
+      {
+        NS_TEST_ASSERT_MSG_NE (((h.GetFlags ()) & TcpHeader::ACK), 0, "ACK for the data segments");
+        uint8_t ace = (h.GetFlags() >> 6) & 0x7;
+        NS_TEST_ASSERT_MSG_EQ (ace , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
+      }
+
+      // AccEcn Option Encoding test
+      if (m_receiverSent == 3)
+      {
+        bool hasOptionAccEcn = h.HasExperimentalOption (TcpOptionExperimental::ACCECN);
+        NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
+        Ptr<const TcpOption> option = h.GetExperimentalOption (TcpOptionExperimental::ACCECN);
+        Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE0B() - 501 , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetCEB() - 500 , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE1B(), 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
+      }
+
+    }
   }
 }
 
@@ -576,6 +785,7 @@ public:
       AddTestCase (new TcpAccEcnTest (8, "AccEcn Negotiation Test : Sender AccEcn, Receiver AccEcn"), TestCase::QUICK);
       AddTestCase (new TcpAccEcnTest (9, "AccEcn Negotiation Test : Sender AccEcn, Receiver AccEcn"), TestCase::QUICK);
       AddTestCase (new TcpAccEcnTest (10, "AccEcn Negotiation Test : Sender AccEcn, Receiver AccEcn"), TestCase::QUICK);
+      AddTestCase (new TcpAccEcnTest (11, "AccEcn Feedback Test : Sender AccEcn, Receiver AccEcn"), TestCase::QUICK);
     }
 } g_tcpAccEcnTestSuite;
 
