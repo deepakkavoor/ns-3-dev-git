@@ -1422,7 +1422,8 @@ TcpSocketBase::ProcessEstablished (Ptr<Packet> packet, const TcpHeader& tcpHeade
                        " HighTxMark = " << m_tcb->m_highTxMark);
 
           // Receiver sets ECE flags when it receives a packet with CE bit on or sender hasn’t responded to ECN echo sent by receiver
-          if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+          if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+              && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
             {
               SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
               NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_SENDING_ECE");
@@ -2910,7 +2911,7 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
-    uint16_t aceFlags = GetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
     header.SetFlags (flags | aceFlags);
   }
   else
@@ -3254,7 +3255,8 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
   SequenceNumber32 expectedSeq = m_rxBuffer->NextRxSequence ();
   if (!m_rxBuffer->Add (p, tcpHeader))
     { // Insert failed: No data or RX buffer full
-      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+      if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+         && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
         {
           SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
           NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_SENDING_ECE");
@@ -3297,7 +3299,8 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
   if (m_rxBuffer->Size () > m_rxBuffer->Available () || m_rxBuffer->NextRxSequence () > expectedSeq + p->GetSize ())
     { // A gap exists in the buffer, or we filled a gap: Always ACK
       m_congestionControl->CwndEvent (m_tcb, TcpSocketState::CA_EVENT_NON_DELAYED_ACK);
-      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+      if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+           && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
         {
           SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
           NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_SENDING_ECE");
@@ -3315,7 +3318,8 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
           m_delAckEvent.Cancel ();
           m_delAckCount = 0;
           m_congestionControl->CwndEvent (m_tcb, TcpSocketState::CA_EVENT_NON_DELAYED_ACK);
-          if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+          if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+              && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
             {
               NS_LOG_DEBUG("Congestion algo " << m_congestionControl->GetName ());
               SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
@@ -3584,7 +3588,8 @@ TcpSocketBase::DelAckTimeout (void)
 {
   m_delAckCount = 0;
   m_congestionControl->CwndEvent (m_tcb, TcpSocketState::CA_EVENT_DELAYED_ACK);
-  if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+  if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+      && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
     {
       SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
       m_tcb->m_ecnState = TcpSocketState::ECN_SENDING_ECE;
@@ -3760,7 +3765,8 @@ TcpSocketBase::SetRcvBufSize (uint32_t size)
    */
   if (oldSize < size && m_connected)
     {
-      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+      if ((m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
+          && (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD || m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE))
         {
           SendEmptyPacket (TcpHeader::ACK | TcpHeader::ECE);
           NS_LOG_DEBUG (TcpSocketState::EcnStateName[m_tcb->m_ecnState] << " -> ECN_SENDING_ECE");
@@ -4431,7 +4437,7 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
 
   // Update sender counters
   uint8_t ace = GetAceFlags (tcpHeader.GetFlags());
-  uint8_t DIVACE = 2^3;
+  uint8_t DIVACE = 2<<2;
   uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
 
   uint32_t cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
@@ -4709,7 +4715,7 @@ bool TcpSocketBase::IsEcnRvdEce (const TcpHeader& tcpHeader)
 uint8_t TcpSocketBase::EncodeAceFlags (uint32_t cepR) const
 {
   // based on AccECN draft A.2.1
-  uint8_t DIVACE = 2^3;
+  uint8_t DIVACE = 8;
   uint8_t ACE = cepR % DIVACE;
   return ACE;
 }
@@ -4718,7 +4724,7 @@ uint8_t TcpSocketBase::EncodeAceFlags (uint32_t cepR) const
 uint32_t TcpSocketBase::DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const
 {
   // based on AccECN draft A.2.1
-  uint8_t DIVACE = 2^3;
+  uint8_t DIVACE = 2<<2;
   uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
   uint32_t cepD = 0;
   uint32_t cepDsafer = 0;
@@ -4744,11 +4750,12 @@ TcpSocketBase::AddOptionAccEcn (TcpHeader& header)
   NS_ASSERT (!isSyn);
 
   Ptr<TcpOptionAccEcn> option = CreateObject<TcpOptionAccEcn> ();
-  uint32_t DIVOPT = 2^24;
+  uint32_t DIVOPT = 2<<23;
   option->SetE0B (m_accEcnData.m_ecnE0bR % DIVOPT);
   option->SetCEB (m_accEcnData.m_ecnCebR % DIVOPT);
   option->SetE1B (m_accEcnData.m_ecnE1bR % DIVOPT);
   header.AppendOption (option);
+
 
   NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData.m_ecnE0bR % DIVOPT
                                 << " r.ceb=" << m_accEcnData.m_ecnCebR % DIVOPT
@@ -4760,7 +4767,7 @@ TcpSocketBase::ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t 
 {
   Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
   NS_LOG_FUNCTION (this << option);
-  uint32_t DIVOPT = 2^24;
+  uint32_t DIVOPT = 2<<23;
 
   if (newlyAckedB > 0)
   {
