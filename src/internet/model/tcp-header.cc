@@ -1,3 +1,4 @@
+
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
  * Copyright (c) 2007 Georgia Tech Research Corporation
@@ -389,18 +390,20 @@ TcpHeader::Deserialize (Buffer::Iterator start)
       uint32_t optionSize;
       if (TcpOption::IsKindKnown (kind))
         {
-          op = TcpOption::CreateOption (kind);
-        }
-      else if (kind == TcpOption::EXPERIMENTAL)
-        {
-            // the magic number lies in the first 2 bytes at the option content field
-            // there need to skip two bytes (kind + length) to reach the option content field
-          uint16_t magicNumber = TcpOptionExperimental::ACCECN;
-          if (TcpOptionExperimental::IsExIDKnown (magicNumber))
+          if (kind == TcpOption::EXPERIMENTAL)
+            {
+              // the magic number lies in the first 2 bytes at the option content field
+              // there need to skip two bytes (kind + length) to reach the option content field
+              uint16_t magicNumber = TcpOptionExperimental::ACCECN;
+              if (TcpOptionExperimental::IsExIDKnown (magicNumber))
+              {
+                op = TcpOptionExperimental::CreateOptionExperimental (magicNumber);
+              }
+            }
+          else
           {
-            op = TcpOptionExperimental::CreateOptionExperimental (magicNumber);
+            op = TcpOption::CreateOption (kind);
           }
-//          op = CreateObject<TcpOptionAccEcn> ();
         }
       else
         {
