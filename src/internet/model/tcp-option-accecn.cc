@@ -61,9 +61,7 @@ TcpOptionAccEcn::GetInstanceTypeId (void) const
 void
 TcpOptionAccEcn::Print(std::ostream &os) const
 {
-    os << "e0b: " << m_e0b << std::endl;
-    os << "ceb: " << m_ceb << std::endl;
-    os << "e1b: " << m_e1b << std::endl;
+    os << "e0b: " << m_e0b << " ceb: " << m_ceb << " e1b: " << m_e1b;
 }
 
 uint32_t

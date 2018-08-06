@@ -147,7 +147,8 @@ TcpSocketBase::GetTypeId (void)
                    MakeEnumAccessor (&TcpSocketBase::m_ecnMode),
                    MakeEnumChecker (EcnMode_t::NoEcn, "NoEcn",
                                     EcnMode_t::ClassicEcn, "ClassicEcn",
-                                    EcnMode_t::EcnPp, "EcnPp"))
+                                    EcnMode_t::EcnPp, "EcnPp",
+                                    EcnMode_t::AccEcn, "AccEcn"))
     .AddTraceSource ("RTO",
                      "Retransmission timeout",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_rto),
@@ -1290,6 +1291,11 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, const Address &fromAddress,
 
   m_rxTrace (packet, tcpHeader, this);
 
+  if (m_connected && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    DecodeAccEcnData (tcpHeader);
+  }
+
   if (tcpHeader.GetFlags () & TcpHeader::SYN)
     {
       /* The window field in a segment where the SYN bit is set (i.e., a <SYN>
@@ -1363,10 +1369,6 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, const Address &fromAddress,
       UpdateWindowSize (tcpHeader);
     }
 
-  if (m_connected && m_ecnMode == EcnMode_t::AccEcn)
-  {
-    DecodeAccEcnData (tcpHeader);
-  }
   if (m_rWnd.Get () == 0 && m_persistEvent.IsExpired ())
     { // Zero window: Enter persist state to send 1 byte to probe
       NS_LOG_LOGIC (this << " Enter zerowindow persist state");
@@ -2804,7 +2806,7 @@ TcpSocketBase::AddSocketTags (const Ptr<Packet> &p, bool withEct) const
     }
   else
     {
-      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0)|| withEct)
+      if ((m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && p->GetSize () > 0) || withEct)
         {
           // Set ECT(0) if ECN is enabled and ipTos is 0
           SocketIpTosTag ipTosTag;
@@ -4482,6 +4484,7 @@ void TcpSocketBase::CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& t
 
 void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
 {
+  NS_LOG_FUNCTION (this << tcpHeader);
   NS_ASSERT (m_connected);
   NS_ASSERT (m_ecnMode == EcnMode_t::AccEcn);
 
@@ -4546,34 +4549,7 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
     Ptr<const TcpOption> option = tcpHeader.GetExperimentalOption (TcpOptionExperimental::ACCECN);
     // based on AccEcn draft A.1, decode AccEcn Option
     ProcessOptionAccEcn(option, newlyAckedB);
-    uint32_t cebD= m_accEcnData.m_ecnCebS;
 
-    // based on AccEcn draft 3.2.7.5. consistency checking when AccEcn Option exists
-    if (cepDsafer == 0 && cebD >0)
-    { // inconsistency happens between ACE field and AccEcn Option
-      // the Data Sender MUST disable sending ECN-capable packets
-      // for the remainder of the half-connection
-      // by setting the IP/ECN field in all subsequent packets to Not-ECT.
-
-      // TBD
-      return;
-    }
-
-    // based on AccECN draft A.2.2, decode ACE field with AccEcn Option
-    int SAFETY_FACTOR = 2;
-    if (cepDsafer > cepD)
-    {
-      uint32_t s = cebD/cepD;
-      if (s < m_tcb->m_segmentSize)
-      {
-        uint32_t sSafer = cebD/cepDsafer;
-        if (sSafer < m_tcb->m_segmentSize/SAFETY_FACTOR)
-        {
-          cepDsafer = cepD;
-        }
-      }
-    }
-    m_accEcnData.m_ecnCepS += cepDsafer;
   }
 }
 void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
@@ -4801,28 +4777,6 @@ uint8_t TcpSocketBase::EncodeAceFlags (uint32_t cepR) const
   uint8_t DIVACE = 8;
   uint8_t ACE = cepR % DIVACE;
   return ACE;
-}
-
-
-uint32_t TcpSocketBase::DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const
-{
-  // based on AccECN draft A.2.1
-  uint8_t DIVACE = 2<<2;
-  uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
-  uint32_t cepD = 0;
-  uint32_t cepDsafer = 0;
-
-  if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
-  {
-    cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
-  }
-  else
-  {
-    return 0;
-  }
-
-  cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
-  return cepDsafer;
 }
 
 void
