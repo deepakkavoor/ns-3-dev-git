@@ -361,6 +361,26 @@ public:
   TracedCallback<Time, Time> m_lastRttTrace;
 
   /**
+   * \brief Callback pointer for AccEcn e0b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE0BTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn e1b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE1BTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn ceb trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCEBTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn cep trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCEPTrace;
+
+  /**
    * \brief Callback function to hook to TcpSocketState congestion window
    * \param oldValue old cWnd value
    * \param newValue new cWnd value
@@ -424,6 +444,34 @@ public:
    * \param newValue new rtt value
    */
   void UpdateRtt (Time oldValue, Time newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e0bR
+  * \param oldValue old e0b of AccEcn data value
+  * \param newValue new e0b of AccEcn data value
+  */
+  void UpdateAccEcnE0B (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e1bR
+  * \param oldValue old e1b of AccEcn data value
+  * \param newValue new e1b of AccEcn data value
+  */
+  void UpdateAccEcnE1B (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cebR
+  * \param oldValue old ceb of AccEcn data value
+  * \param newValue new ceb of AccEcn data value
+  */
+  void UpdateAccEcnCEB (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cepR
+  * \param oldValue old cep of AccEcn data value
+  * \param newValue new cep of AccEcn data value
+  */
+  void UpdateAccEcnCEP (uint32_t oldValue, uint32_t newValue);
 
   /**
    * \brief Install a congestion control algorithm on this socket
@@ -1358,7 +1406,7 @@ protected:
 
   // Parameters related to Explicit Congestion Notification
   EcnMode_t                     m_ecnMode    {EcnMode_t::NoEcn};      //!< Socket ECN capability
-  TcpAccEcnData            m_accEcnData;
+  Ptr<TcpAccEcnData>            m_accEcnData;
   TracedValue<SequenceNumber32> m_ecnEchoSeq {0};      //!< Sequence number of the last received ECN Echo
   TracedValue<SequenceNumber32> m_ecnCESeq   {0};      //!< Sequence number of the last received Congestion Experienced
   TracedValue<SequenceNumber32> m_ecnCWRSeq  {0};      //!< Sequence number of the last sent CWR

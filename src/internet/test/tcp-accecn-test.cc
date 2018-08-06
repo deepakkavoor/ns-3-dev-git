@@ -195,7 +195,7 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
-    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData->m_ecnCepR));
     header.SetFlags (flags | aceFlags);
   }
   else
@@ -226,12 +226,12 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
   bool hasAck = flags & TcpHeader::ACK;
   bool isAck = flags == TcpHeader::ACK;
 
-  NS_LOG_DEBUG ("Syn+Acn: " << (hasSyn && hasAck) << " LastAck: " << (!hasSyn && hasAck && !m_connected) << " !m_useDelAckAccEcn: " << !m_accEcnData.m_useDelAckAccEcn);
-  bool addAccEcnOption = (hasSyn && hasAck) || (!hasSyn && hasAck && !m_connected) || !m_accEcnData.m_useDelAckAccEcn;
+  NS_LOG_DEBUG ("Syn+Acn: " << (hasSyn && hasAck) << " LastAck: " << (!hasSyn && hasAck && !m_connected) << " !m_useDelAckAccEcn: " << !m_accEcnData->m_useDelAckAccEcn);
+  bool addAccEcnOption = (hasSyn && hasAck) || (!hasSyn && hasAck && !m_connected) || !m_accEcnData->m_useDelAckAccEcn;
   if (m_ecnMode == EcnMode_t::AccEcn && addAccEcnOption)
   {
     AddOptionAccEcn(header);
-    m_accEcnData.m_useDelAckAccEcn = true;
+    m_accEcnData->m_useDelAckAccEcn = true;
   }
 
   if (hasSyn)
@@ -435,7 +435,7 @@ TcpSocketTestAccEcn::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, boo
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
-    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData->m_ecnCepR));
     header.SetFlags (flags | aceFlags);
   }
   else
@@ -443,10 +443,10 @@ TcpSocketTestAccEcn::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, boo
     header.SetFlags (flags);
   }
 
-  if (!m_accEcnData.m_useDelAckAccEcn && m_ecnMode == EcnMode_t::AccEcn)
+  if ((!m_accEcnData->m_useDelAckAccEcn || seq == SequenceNumber32 (1))  && m_ecnMode == EcnMode_t::AccEcn)
   {
     AddOptionAccEcn(header);
-    m_accEcnData.m_useDelAckAccEcn = true;
+    m_accEcnData->m_useDelAckAccEcn = true;
   }
 
   header.SetSequenceNumber (seq);
@@ -538,6 +538,10 @@ protected:
     virtual Ptr<TcpSocketMsgBase> CreateSenderSocket (Ptr<Node> node);
     virtual Ptr<TcpSocketMsgBase> CreateReceiverSocket (Ptr<Node> node);
     void ConfigureProperties ();
+    void AccEcnE0BTrace (uint32_t oldValue, uint32_t newValue);
+    void AccEcnE1BTrace (uint32_t oldValue, uint32_t newValue);
+    void AccEcnCEBTrace (uint32_t oldValue, uint32_t newValue);
+    void AccEcnCEPTrace (uint32_t oldValue, uint32_t newValue);
 
 private:
     uint32_t m_testcase;
@@ -545,7 +549,10 @@ private:
     uint32_t m_senderReceived;
     uint32_t m_receiverSent;
     uint32_t m_receiverReceived;
-    uint32_t m_cwndChangeCount;
+    uint32_t m_e0bChangeCount;
+    uint32_t m_e1bChangeCount;
+    uint32_t m_cebChangeCount;
+    uint32_t m_cepChangeCount;
 };
 
 TcpAccEcnTest::TcpAccEcnTest (uint32_t testcase, const std::string &desc)
@@ -555,7 +562,10 @@ TcpAccEcnTest::TcpAccEcnTest (uint32_t testcase, const std::string &desc)
           m_senderReceived (0),
           m_receiverSent (0),
           m_receiverReceived (0),
-          m_cwndChangeCount (0)
+          m_e0bChangeCount (0),
+          m_e1bChangeCount (0),
+          m_cebChangeCount (0),
+          m_cepChangeCount (0)
 {
 }
 
@@ -594,7 +604,79 @@ Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateSenderSocket (Ptr<Node> node)
   Ptr<TcpSocketTestAccEcn> socket = DynamicCast<TcpSocketTestAccEcn> (
           CreateSocket (node, TcpSocketTestAccEcn::GetTypeId (), m_congControlTypeId));
   socket->SetTestCase (m_testcase, TcpSocketTestAccEcn::SENDER);
+  socket->TraceConnectWithoutContext ("AccEcnE0B",
+                                              MakeCallback (&TcpAccEcnTest::AccEcnE0BTrace, this));
+  socket->TraceConnectWithoutContext ("AccEcnE1B",
+                                              MakeCallback (&TcpAccEcnTest::AccEcnE1BTrace, this));
+  socket->TraceConnectWithoutContext ("AccEcnCEB",
+                                              MakeCallback (&TcpAccEcnTest::AccEcnCEBTrace, this));
+  socket->TraceConnectWithoutContext ("AccEcnCEP",
+                                              MakeCallback (&TcpAccEcnTest::AccEcnCEPTrace, this));
   return socket;
+}
+
+void
+TcpAccEcnTest::AccEcnE0BTrace (uint32_t oldValue, uint32_t newValue)
+{
+  NS_LOG_DEBUG("AccEcnE0BTrace: " << oldValue << " " << newValue);
+  m_e0bChangeCount++;
+  if (m_testcase == 11)
+  {
+    if (m_e0bChangeCount == 1)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 1, "AccEcn option decode test: initial r.e0b should be 1");
+    }
+
+    if (m_e0bChangeCount == 2)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 501, "AccEcn option decode test: r.e0b should be 501");
+    }
+  }
+}
+
+void
+TcpAccEcnTest::AccEcnE1BTrace (uint32_t oldValue, uint32_t newValue)
+{
+  NS_LOG_DEBUG("AccEcnE1BTrace: " << oldValue << " " << newValue);
+}
+
+void
+TcpAccEcnTest::AccEcnCEBTrace (uint32_t oldValue, uint32_t newValue)
+{
+  NS_LOG_DEBUG("AccEcnCEBTrace: " << oldValue << " " << newValue);
+  m_cebChangeCount++;
+  if (m_testcase == 11)
+  {
+    if (m_cebChangeCount == 1)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 500, "AccEcn option decode test: r.ceb should be 500");
+    }
+  }
+}
+
+void
+TcpAccEcnTest::AccEcnCEPTrace (uint32_t oldValue, uint32_t newValue)
+{
+  NS_LOG_DEBUG("AccEcnCEPTrace: " << oldValue << " " << newValue);
+  m_cepChangeCount++;
+  if (m_testcase == 11)
+  {
+    if (m_cepChangeCount == 1)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 5, "AccEcn ACE decode test: initial r.cep should be 5");
+    }
+    if (m_cepChangeCount == 2)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 6, "AccEcn ACE decode test: r.cep should be 6");
+
+    }
+    if (m_cepChangeCount == 3)
+    {
+      NS_TEST_ASSERT_MSG_EQ (newValue, 8, "AccEcn ACE decode test: r.cep should be 8");
+
+    }
+  }
+
 }
 
 Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateReceiverSocket (Ptr<Node> node)
@@ -664,6 +746,15 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
         NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
       }
     } // End Last Ack test in tcp header
+
+    if (m_receiverReceived == 3) // the first data segment
+    {
+      if (m_testcase == 11)
+      {
+        // AccEcn option test
+        NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in the first data segment");
+      }
+    } // End test for the first data segment
 
   }// End test for who == RECEIVER
 
@@ -755,9 +846,9 @@ void TcpAccEcnTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho
         NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
         Ptr<const TcpOption> option = h.GetExperimentalOption (TcpOptionExperimental::ACCECN);
         Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
-        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE0B() - 501 , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
-        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetCEB() - 500 , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
-        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE1B(), 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE0B() - 501 , 0, "AccEcn option encoding test: e0b should be 501");
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetCEB() - 500 , 0, "AccEcn option encoding test: ceb should be 500");
+        NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE1B(), 0, "AccEcn option encoding test: e1b should be 0");
       }
 
     }

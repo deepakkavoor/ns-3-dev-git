@@ -228,6 +228,22 @@ TcpSocketBase::GetTypeId (void)
                      "Sequence of last received CWR",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_ecnCWRSeq),
                      "ns3::SequenceNumber32TracedValueCallback")
+    .AddTraceSource ("AccEcnE0B",
+                     "The payload byte number marked ECT(0) for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE0BTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnE1B",
+                     "The payload byte number marked ECT(1) for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE1BTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCEB",
+                     "The payload byte number marked CE for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCEBTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCEP",
+                     "The packet number marked CE for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCEPTrace),
+                     "ns3::TracedValueCallback::Uint32")
   ;
   return tid;
 }
@@ -245,6 +261,7 @@ TcpSocketBase::TcpSocketBase (void)
   m_rxBuffer = CreateObject<TcpRxBuffer> ();
   m_txBuffer = CreateObject<TcpTxBuffer> ();
   m_tcb      = CreateObject<TcpSocketState> ();
+  m_accEcnData = CreateObject<TcpAccEcnData> ();
 
   m_tcb->m_currentPacingRate = m_tcb->m_maxPacingRate;
   m_pacingTimer.SetFunction (&TcpSocketBase::NotifyPacingPerformed, this);
@@ -285,6 +302,22 @@ TcpSocketBase::TcpSocketBase (void)
 
   ok = m_tcb->TraceConnectWithoutContext ("RTT",
                                           MakeCallback (&TcpSocketBase::UpdateRtt, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bS",
+                                          MakeCallback (&TcpSocketBase::UpdateAccEcnE0B, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1B, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCEB, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCEP, this));
   NS_ASSERT (ok == true);
 }
 
@@ -358,6 +391,7 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
   m_txBuffer = CopyObject (sock.m_txBuffer);
   m_rxBuffer = CopyObject (sock.m_rxBuffer);
   m_tcb = CopyObject (sock.m_tcb);
+  m_accEcnData = CopyObject (sock.m_accEcnData);
 
   m_tcb->m_currentPacingRate = m_tcb->m_maxPacingRate;
   m_pacingTimer.SetFunction (&TcpSocketBase::NotifyPacingPerformed, this);
@@ -408,6 +442,22 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
 
   ok = m_tcb->TraceConnectWithoutContext ("RTT",
                                           MakeCallback (&TcpSocketBase::UpdateRtt, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE0B, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1B, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCEB, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCEP, this));
   NS_ASSERT (ok == true);
 }
 
@@ -2461,7 +2511,7 @@ TcpSocketBase::SendEmptyPacket (uint16_t flags)
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
-    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData->m_ecnCepR));
     header.SetFlags (flags | aceFlags);
   }
   else
@@ -2492,11 +2542,11 @@ TcpSocketBase::SendEmptyPacket (uint16_t flags)
   bool hasAck = flags & TcpHeader::ACK;
   bool isAck = flags == TcpHeader::ACK;
 
-  bool addAccEcnOption = (hasSyn && hasAck) || (hasAck && !m_connected) || !m_accEcnData.m_useDelAckAccEcn;
+  bool addAccEcnOption = (hasSyn && hasAck) || (!hasSyn && hasAck && !m_connected) || !m_accEcnData->m_useDelAckAccEcn;
   if (m_ecnMode == EcnMode_t::AccEcn && addAccEcnOption)
   {
     AddOptionAccEcn(header);
-    m_accEcnData.m_useDelAckAccEcn = true;
+    m_accEcnData->m_useDelAckAccEcn = true;
   }
 
   if (hasSyn)
@@ -2911,7 +2961,7 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
   if (m_ecnMode == EcnMode_t::AccEcn && m_connected)
   {
     NS_ASSERT_MSG (GetAceFlags(flags) == 0, "there are some unexpected bits in ACE field");
-    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData.m_ecnCepR));
+    uint16_t aceFlags = SetAceFlags (EncodeAceFlags (m_accEcnData->m_ecnCepR));
     header.SetFlags (flags | aceFlags);
   }
   else
@@ -2919,10 +2969,10 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
     header.SetFlags (flags);
   }
 
-  if (!m_accEcnData.m_useDelAckAccEcn && m_ecnMode == EcnMode_t::AccEcn)
+  if ((!m_accEcnData->m_useDelAckAccEcn || seq == SequenceNumber32 (1)) && m_ecnMode == EcnMode_t::AccEcn)
   {
     AddOptionAccEcn(header);
-    m_accEcnData.m_useDelAckAccEcn = true;
+    m_accEcnData->m_useDelAckAccEcn = true;
   }
 
   header.SetSequenceNumber (seq);
@@ -3289,7 +3339,7 @@ TcpSocketBase::ReceivedData (Ptr<Packet> p, const TcpHeader& tcpHeader)
         }
     }
 
-  if (m_ecnMode == EcnMode_t::AccEcn && !m_accEcnData.m_useDelAckAccEcn)
+  if (m_ecnMode == EcnMode_t::AccEcn && !m_accEcnData->m_useDelAckAccEcn)
     { // Change Change-Triggered ACKs
       SendEmptyPacket (TcpHeader::ACK);
       return;
@@ -4233,6 +4283,31 @@ TcpSocketBase::UpdateRtt (Time oldValue, Time newValue)
 }
 
 void
+TcpSocketBase::UpdateAccEcnE0B (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE0BTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnE1B (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE1BTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCEB (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCEBTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCEP (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCEPTrace (oldValue, newValue);
+}
+
+
+void
 TcpSocketBase::SetCongestionControlAlgorithm (Ptr<TcpCongestionOps> algo)
 {
   NS_LOG_FUNCTION (this << algo);
@@ -4321,21 +4396,21 @@ void TcpSocketBase::CheckEcnInIpv4 (const Ipv4Header& header, const TcpHeader& t
     { // Update receiver counters
       if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD)
       {
-        m_accEcnData.m_ecnCepR += 1;
-        m_accEcnData.m_ecnCebR += tcpPayloadSize;
+        m_accEcnData->m_ecnCepR += 1;
+        m_accEcnData->m_ecnCebR += tcpPayloadSize;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD)
       {
-        m_accEcnData.m_ecnE0bR += tcpPayloadSize;
+        m_accEcnData->m_ecnE0bR += tcpPayloadSize;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD)
       {
-        m_accEcnData.m_ecnE1bR += tcpPayloadSize;
+        m_accEcnData->m_ecnE1bR += tcpPayloadSize;
       }
 
       if (tcpPayloadSize > 0)
       {
-        m_accEcnData.m_useDelAckAccEcn = useDelAckAccEcn;
+        m_accEcnData->m_useDelAckAccEcn = useDelAckAccEcn;
       }
     }
   }
@@ -4385,21 +4460,21 @@ void TcpSocketBase::CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& t
     { // Update receiver counters
       if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD)
       {
-        m_accEcnData.m_ecnCepR += 1;
-        m_accEcnData.m_ecnCebR += tcpPayloadSize;
+        m_accEcnData->m_ecnCepR += 1;
+        m_accEcnData->m_ecnCebR += tcpPayloadSize;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD)
       {
-        m_accEcnData.m_ecnE0bR += tcpPayloadSize;
+        m_accEcnData->m_ecnE0bR += tcpPayloadSize;
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD)
       {
-        m_accEcnData.m_ecnE1bR += tcpPayloadSize;
+        m_accEcnData->m_ecnE1bR += tcpPayloadSize;
       }
 
       if (tcpPayloadSize > 0)
       {
-        m_accEcnData.m_useDelAckAccEcn = useDelAckAccEcn;
+        m_accEcnData->m_useDelAckAccEcn = useDelAckAccEcn;
       }
     }
   }
@@ -4440,22 +4515,30 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
   uint8_t DIVACE = 2<<2;
   uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
 
-  uint32_t cepD = (ace + DIVACE - (m_accEcnData.m_ecnCepS % DIVACE)) % DIVACE;
+  uint32_t cepD = (ace + DIVACE - (m_accEcnData->m_ecnCepS % DIVACE)) % DIVACE;
   uint32_t cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
+  NS_LOG_DEBUG("newlyAckedB:" << newlyAckedB << " newlyAckedPkt: " << newlyAckedPkt << " newlyAckedT: " << newlyAckedT);
+  NS_LOG_DEBUG("m_accEcnData.m_ecnCepS: " << m_accEcnData->m_ecnCepS << " ace: " << static_cast<uint32_t>(ace) << " cepD: " << cepD << " cepDsafer: " << cepDsafer);
 
   if (!hasOptionAccEcn)
   {
     // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
     if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
     {
-      m_accEcnData.m_ecnCepS += cepDsafer;
+      if (newlyAckedPkt < cepD)
+      {
+        cepDsafer = cepD;
+      }
+      m_accEcnData->m_ecnCepS += cepDsafer;
     }
 
+    NS_LOG_INFO (m_node->GetId () << " Decode AccEcn ACE field, s.cep=" << m_accEcnData->m_ecnCepS);
+
     // based on AccECN draft A.3, use ACE to estimate s.ceb without AccEcn option
-    uint32_t byteInFlight = BytesInFlight();
-    uint32_t packetInFlight = 1; //TDB
-    uint32_t cebD = cepDsafer * (byteInFlight/packetInFlight);
-    m_accEcnData.m_ecnCebS += cebD;
+//    uint32_t byteInFlight = BytesInFlight();
+//    uint32_t packetInFlight = 1; //TDB
+//    uint32_t cebD = cepDsafer * (byteInFlight/packetInFlight);
+//    m_accEcnData->m_ecnCebS += cebD;
 
   }
   else
@@ -4504,12 +4587,12 @@ void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
     if (ecnflags ==  (TcpHeader::CWR | TcpHeader::ECE | TcpHeader::AE)) // Sender is AccEcn
     {
       NS_LOG_INFO ("Received Accurate ECN SYN packet.");
-      m_accEcnData.IniReceiverCounters();
+      m_accEcnData->IniReceiverCounters();
 
       // send out SYN/ACK based on ECT field at IP header in SYN packet
       if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN
       {
-        m_accEcnData.m_ecnCepR += 1;
+        m_accEcnData->m_ecnCepR += 1;
         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR | TcpHeader::AE);
       }
       else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN
@@ -4585,8 +4668,8 @@ void TcpSocketBase::CheckEcnRvdSynAck (const TcpHeader& tcpHeader)
     }
     else // Receiver is AccEcn
     {
-      m_accEcnData.IniSenderCounters();
-      m_accEcnData.IniReceiverCounters();
+      m_accEcnData->IniSenderCounters();
+      m_accEcnData->IniReceiverCounters();
 
       if (ecnflags == TcpHeader::CWR || ecnflags == (TcpHeader::CWR | TcpHeader::ECE)) // feedback from SYN/ACK: SYN with notECT or ECT1 in IP header
       {
@@ -4594,7 +4677,7 @@ void TcpSocketBase::CheckEcnRvdSynAck (const TcpHeader& tcpHeader)
       }
       else if (ecnflags == (TcpHeader::CWR | TcpHeader::AE)) // feedback from SYN/ACK: SYN suffers CE
       {
-        m_accEcnData.m_ecnCepS += 1;
+        m_accEcnData->m_ecnCepS += 1;
         // Congestion Response for SYN
         NS_LOG_DEBUG ("SET IW to 1 SMSS");
         m_tcb->m_cWnd = 1 * m_tcb->m_segmentSize;
@@ -4605,7 +4688,7 @@ void TcpSocketBase::CheckEcnRvdSynAck (const TcpHeader& tcpHeader)
       // based on AccEcn draft to set ACE field on last ACK
       if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN/ACK
       {
-        m_accEcnData.m_ecnCepR += 1;
+        m_accEcnData->m_ecnCepR += 1;
         uint16_t flags = SetAceFlags (0b110);
         SendEmptyPacket (TcpHeader::ACK | flags);
       }
@@ -4681,11 +4764,11 @@ void TcpSocketBase::CheckEcnRvdLastAck (const TcpHeader& tcpHeader)
   }
   else if (m_ecnMode == EcnMode_t::AccEcn)
   {
-    m_accEcnData.IniSenderCounters();
+    m_accEcnData->IniSenderCounters();
     uint8_t ace = GetAceFlags(tcpHeader.GetFlags());
     if (ace == 0b110) // indicate SYN/ACK suffers CE
     {
-      m_accEcnData.m_ecnCepS += 1;
+      m_accEcnData->m_ecnCepS += 1;
       m_tcb->m_cWnd = 1 * m_tcb->m_segmentSize;
       m_tcb->m_cWndInfl = m_tcb->m_cWnd;
     }
@@ -4696,7 +4779,7 @@ void TcpSocketBase::CheckEcnRvdLastAck (const TcpHeader& tcpHeader)
 
     if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on Last ACK
     {
-      m_accEcnData.m_ecnCepR += 1;
+      m_accEcnData->m_ecnCepR += 1;
     }
   }
 
@@ -4751,36 +4834,38 @@ TcpSocketBase::AddOptionAccEcn (TcpHeader& header)
 
   Ptr<TcpOptionAccEcn> option = CreateObject<TcpOptionAccEcn> ();
   uint32_t DIVOPT = 2<<23;
-  option->SetE0B (m_accEcnData.m_ecnE0bR % DIVOPT);
-  option->SetCEB (m_accEcnData.m_ecnCebR % DIVOPT);
-  option->SetE1B (m_accEcnData.m_ecnE1bR % DIVOPT);
+  option->SetE0B (m_accEcnData->m_ecnE0bR % DIVOPT);
+  option->SetCEB (m_accEcnData->m_ecnCebR % DIVOPT);
+  option->SetE1B (m_accEcnData->m_ecnE1bR % DIVOPT);
   header.AppendOption (option);
 
 
-  NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData.m_ecnE0bR % DIVOPT
-                                << " r.ceb=" << m_accEcnData.m_ecnCebR % DIVOPT
-                                << " r.e1b=" << m_accEcnData.m_ecnE1bR % DIVOPT);
+  NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData->m_ecnE0bR % DIVOPT
+                                << " r.ceb=" << m_accEcnData->m_ecnCebR % DIVOPT
+                                << " r.e1b=" << m_accEcnData->m_ecnE1bR % DIVOPT);
 }
 
 void
 TcpSocketBase::ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t newlyAckedB)
 {
   Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
-  NS_LOG_FUNCTION (this << option);
+  NS_LOG_FUNCTION (this << accEcnOption);
   uint32_t DIVOPT = 2<<23;
-
   if (newlyAckedB > 0)
   {
-    uint32_t e0bD = (accEcnOption->GetE0B() + DIVOPT - (m_accEcnData.m_ecnE0bS % DIVOPT)) % DIVOPT;
-    m_accEcnData.m_ecnE0bS += e0bD;
+    uint32_t e0bD = (accEcnOption->GetE0B() + DIVOPT - (m_accEcnData->m_ecnE0bS % DIVOPT)) % DIVOPT;
+    m_accEcnData->m_ecnE0bS += e0bD;
 
-    uint32_t cebD = (accEcnOption->GetCEB() + DIVOPT - (m_accEcnData.m_ecnCebS % DIVOPT)) % DIVOPT;
-    m_accEcnData.m_ecnCebS += cebD;
+    uint32_t cebD = (accEcnOption->GetCEB() + DIVOPT - (m_accEcnData->m_ecnCebS % DIVOPT)) % DIVOPT;
+    m_accEcnData->m_ecnCebS += cebD;
 
-    uint32_t e1bD = (accEcnOption->GetE1B() + DIVOPT - (m_accEcnData.m_ecnE1bS % DIVOPT)) % DIVOPT;
-    m_accEcnData.m_ecnE1bS += e1bD;
+    uint32_t e1bD = (accEcnOption->GetE1B() + DIVOPT - (m_accEcnData->m_ecnE1bS % DIVOPT)) % DIVOPT;
+    m_accEcnData->m_ecnE1bS += e1bD;
   }
 
+  NS_LOG_INFO (m_node->GetId () << " Decode option AccEcn, s.e0b=" << m_accEcnData->m_ecnE0bS
+                                << " s.ceb=" << m_accEcnData->m_ecnCebS
+                                << " s.e1b=" << m_accEcnData->m_ecnE1bS);
 }
 
 
