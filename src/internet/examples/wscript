@@ -8,5 +8,10 @@ def build(bld):
                                  ['network', 'internet', 'applications'])
     obj.source = 'main-simple.cc'
 
-    obj = bld.create_ns3_program('ecnpp-example', ['point-to-point', 'internet', 'applications', 'flow-monitor', 'traffic-control'])
+    obj = bld.create_ns3_program('ecnpp-example',
+                                  ['point-to-point', 'internet', 'applications', 'flow-monitor', 'traffic-control'])
     obj.source = 'tcp-ecnpp-example.cc'
+
+    obj = bld.create_ns3_program('accecn-example',
+                                      ['point-to-point', 'internet', 'applications', 'flow-monitor', 'traffic-control'])
+    obj.source = 'tcp-accecn-example.cc'
