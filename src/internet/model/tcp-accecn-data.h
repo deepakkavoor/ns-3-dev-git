@@ -53,10 +53,10 @@ public:
   TracedValue<uint32_t>   m_ecnCebS    {0}; //!< For data sender, the number of TCP payload bytes in packets marked respectively with the CE
   TracedValue<uint32_t>   m_ecnE0bS    {0}; //!< For data sender, the number of TCP payload bytes in packets marked respectively with the ECT(0)
   TracedValue<uint32_t>   m_ecnE1bS    {0}; //!< For data sender, the number of TCP payload bytes in packets marked respectively with the ECT(1)
-  uint32_t   m_ecnCepR    {0}; //!< For data receiver, the number of packets marked respectively with the CE
-  uint32_t   m_ecnCebR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the CE
-  uint32_t   m_ecnE0bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(0)
-  uint32_t   m_ecnE1bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(1)
+  TracedValue<uint32_t>   m_ecnCepR    {0}; //!< For data receiver, the number of packets marked respectively with the CE
+  TracedValue<uint32_t>   m_ecnCebR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the CE
+  TracedValue<uint32_t>   m_ecnE0bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(0)
+  TracedValue<uint32_t>   m_ecnE1bR    {0}; //!< For data receiver, the number of TCP payload bytes in packets marked respectively with the ECT(1)
   bool m_useDelAckAccEcn  {true};
 
 private:

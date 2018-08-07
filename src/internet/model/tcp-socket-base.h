@@ -361,24 +361,44 @@ public:
   TracedCallback<Time, Time> m_lastRttTrace;
 
   /**
-   * \brief Callback pointer for AccEcn e0b trace chaining
+   * \brief Callback pointer for AccEcn s.e0b trace chaining
    */
-  TracedCallback<uint32_t, uint32_t> m_accEcnE0BTrace;
+  TracedCallback<uint32_t, uint32_t> m_accEcnE0bSTrace;
 
   /**
-   * \brief Callback pointer for AccEcn e1b trace chaining
+   * \brief Callback pointer for AccEcn s.e1b trace chaining
    */
-  TracedCallback<uint32_t, uint32_t> m_accEcnE1BTrace;
+  TracedCallback<uint32_t, uint32_t> m_accEcnE1bSTrace;
 
   /**
-   * \brief Callback pointer for AccEcn ceb trace chaining
+   * \brief Callback pointer for AccEcn s.ceb trace chaining
    */
-  TracedCallback<uint32_t, uint32_t> m_accEcnCEBTrace;
+  TracedCallback<uint32_t, uint32_t> m_accEcnCebSTrace;
 
   /**
-   * \brief Callback pointer for AccEcn cep trace chaining
+   * \brief Callback pointer for AccEcn s.cep trace chaining
    */
-  TracedCallback<uint32_t, uint32_t> m_accEcnCEPTrace;
+  TracedCallback<uint32_t, uint32_t> m_accEcnCepSTrace;
+
+  /**
+ * \brief Callback pointer for AccEcn r.e0b trace chaining
+ */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE0bRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.e1b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE1bRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.ceb trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCebRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.cep trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCepRTrace;
 
   /**
    * \brief Callback function to hook to TcpSocketState congestion window
@@ -447,31 +467,59 @@ public:
 
   /**
   * \brief Callback function to hook to TcpAccEcnData e0bR
-  * \param oldValue old e0b of AccEcn data value
-  * \param newValue new e0b of AccEcn data value
+  * \param oldValue old r.e0b of AccEcn data value
+  * \param newValue new r.e0b of AccEcn data value
   */
-  void UpdateAccEcnE0B (uint32_t oldValue, uint32_t newValue);
+  void UpdateAccEcnE0bR (uint32_t oldValue, uint32_t newValue);
 
   /**
   * \brief Callback function to hook to TcpAccEcnData e1bR
-  * \param oldValue old e1b of AccEcn data value
-  * \param newValue new e1b of AccEcn data value
+  * \param oldValue old r.e1b of AccEcn data value
+  * \param newValue new r.e1b of AccEcn data value
   */
-  void UpdateAccEcnE1B (uint32_t oldValue, uint32_t newValue);
+  void UpdateAccEcnE1bR (uint32_t oldValue, uint32_t newValue);
 
   /**
   * \brief Callback function to hook to TcpAccEcnData cebR
-  * \param oldValue old ceb of AccEcn data value
-  * \param newValue new ceb of AccEcn data value
+  * \param oldValue old r.ceb of AccEcn data value
+  * \param newValue new r.ceb of AccEcn data value
   */
-  void UpdateAccEcnCEB (uint32_t oldValue, uint32_t newValue);
+  void UpdateAccEcnCebR (uint32_t oldValue, uint32_t newValue);
 
   /**
   * \brief Callback function to hook to TcpAccEcnData cepR
-  * \param oldValue old cep of AccEcn data value
-  * \param newValue new cep of AccEcn data value
+  * \param oldValue old r.cep of AccEcn data value
+  * \param newValue new r.cep of AccEcn data value
   */
-  void UpdateAccEcnCEP (uint32_t oldValue, uint32_t newValue);
+  void UpdateAccEcnCepR (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e0bS
+  * \param oldValue old s.e0b of AccEcn data value
+  * \param newValue new s.e0b of AccEcn data value
+  */
+  void UpdateAccEcnE0bS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e1bS
+  * \param oldValue old s.e1b of AccEcn data value
+  * \param newValue new s.e1b of AccEcn data value
+  */
+  void UpdateAccEcnE1bS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cebS
+  * \param oldValue old s.ceb of AccEcn data value
+  * \param newValue new s.ceb of AccEcn data value
+  */
+  void UpdateAccEcnCebS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cepS
+  * \param oldValue old s.cep of AccEcn data value
+  * \param newValue new s.cep of AccEcn data value
+  */
+  void UpdateAccEcnCepS (uint32_t oldValue, uint32_t newValue);
 
   /**
    * \brief Install a congestion control algorithm on this socket

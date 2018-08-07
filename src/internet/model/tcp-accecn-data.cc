@@ -48,6 +48,22 @@ TcpAccEcnData::GetTypeId (void)
           .AddTraceSource("E1bS",
                           "For data sender the number of TCP payload bytes in packets marked respectively with the ECT(1)",
                           MakeTraceSourceAccessor(&TcpAccEcnData::m_ecnE1bS),
+                          "ns3::TracedValue::Uint32Callback")
+          .AddTraceSource("CepR",
+                          "For data receiver the number of packets marked respectively with the CE",
+                          MakeTraceSourceAccessor(&TcpAccEcnData::m_ecnCepR),
+                          "ns3::TracedValue::Uint32Callback")
+          .AddTraceSource("CebR",
+                          "For data receiver the number of TCP payload bytes in packets marked respectively with the CE",
+                          MakeTraceSourceAccessor(&TcpAccEcnData::m_ecnCebR),
+                          "ns3::TracedValue::Uint32Callback")
+          .AddTraceSource("E0bR",
+                          "For data receiver the number of TCP payload bytes in packets marked respectively with the ECT(0)",
+                          MakeTraceSourceAccessor(&TcpAccEcnData::m_ecnE0bR),
+                          "ns3::TracedValue::Uint32Callback")
+          .AddTraceSource("E1bR",
+                          "For data receiver the number of TCP payload bytes in packets marked respectively with the ECT(1)",
+                          MakeTraceSourceAccessor(&TcpAccEcnData::m_ecnE1bR),
                           "ns3::TracedValue::Uint32Callback");
   return tid;
 }

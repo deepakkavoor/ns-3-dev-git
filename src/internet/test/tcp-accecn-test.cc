@@ -1,4 +1,3 @@
-
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
  * Copyright (c) 2018 Tsinghua University
@@ -604,14 +603,23 @@ Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateSenderSocket (Ptr<Node> node)
   Ptr<TcpSocketTestAccEcn> socket = DynamicCast<TcpSocketTestAccEcn> (
           CreateSocket (node, TcpSocketTestAccEcn::GetTypeId (), m_congControlTypeId));
   socket->SetTestCase (m_testcase, TcpSocketTestAccEcn::SENDER);
-  socket->TraceConnectWithoutContext ("AccEcnE0B",
+  socket->TraceConnectWithoutContext ("AccEcnE0bS",
                                               MakeCallback (&TcpAccEcnTest::AccEcnE0BTrace, this));
-  socket->TraceConnectWithoutContext ("AccEcnE1B",
+  socket->TraceConnectWithoutContext ("AccEcnE1bS",
                                               MakeCallback (&TcpAccEcnTest::AccEcnE1BTrace, this));
-  socket->TraceConnectWithoutContext ("AccEcnCEB",
+  socket->TraceConnectWithoutContext ("AccEcnCebS",
                                               MakeCallback (&TcpAccEcnTest::AccEcnCEBTrace, this));
-  socket->TraceConnectWithoutContext ("AccEcnCEP",
+  socket->TraceConnectWithoutContext ("AccEcnCepS",
                                               MakeCallback (&TcpAccEcnTest::AccEcnCEPTrace, this));
+
+  return socket;
+}
+
+Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateReceiverSocket (Ptr<Node> node)
+{
+  Ptr<TcpSocketTestAccEcn> socket = DynamicCast<TcpSocketTestAccEcn> (
+          CreateSocket (node, TcpSocketTestAccEcn::GetTypeId (), m_congControlTypeId));
+  socket->SetTestCase (m_testcase, TcpSocketTestAccEcn::RECEIVER);
   return socket;
 }
 
@@ -649,7 +657,7 @@ TcpAccEcnTest::AccEcnCEBTrace (uint32_t oldValue, uint32_t newValue)
   {
     if (m_cebChangeCount == 1)
     {
-      NS_TEST_ASSERT_MSG_EQ (newValue, 500, "AccEcn option decode test: r.ceb should be 500");
+      NS_TEST_ASSERT_MSG_EQ (newValue, 500, "AccEcn option decode test: s.ceb should be 500");
     }
   }
 }
@@ -663,29 +671,23 @@ TcpAccEcnTest::AccEcnCEPTrace (uint32_t oldValue, uint32_t newValue)
   {
     if (m_cepChangeCount == 1)
     {
-      NS_TEST_ASSERT_MSG_EQ (newValue, 5, "AccEcn ACE decode test: initial r.cep should be 5");
+      NS_TEST_ASSERT_MSG_EQ (newValue, 5, "AccEcn ACE decode test: initial s.cep should be 5");
     }
     if (m_cepChangeCount == 2)
     {
-      NS_TEST_ASSERT_MSG_EQ (newValue, 6, "AccEcn ACE decode test: r.cep should be 6");
+      NS_TEST_ASSERT_MSG_EQ (newValue, 6, "AccEcn ACE decode test: s.cep should be 6");
 
     }
     if (m_cepChangeCount == 3)
     {
-      NS_TEST_ASSERT_MSG_EQ (newValue, 8, "AccEcn ACE decode test: r.cep should be 8");
+      NS_TEST_ASSERT_MSG_EQ (newValue, 8, "AccEcn ACE decode test: s.cep should be 8");
 
     }
   }
 
 }
 
-Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateReceiverSocket (Ptr<Node> node)
-{
-  Ptr<TcpSocketTestAccEcn> socket = DynamicCast<TcpSocketTestAccEcn> (
-          CreateSocket (node, TcpSocketTestAccEcn::GetTypeId (), m_congControlTypeId));
-  socket->SetTestCase (m_testcase, TcpSocketTestAccEcn::RECEIVER);
-  return socket;
-}
+
 
 
 void
