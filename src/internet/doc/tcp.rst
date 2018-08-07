@@ -781,6 +781,13 @@ ECN++ adding ECN support on SYN, SYN/ACK, pure ACK, W probe, FIN, RST and Re-XMT
 ECN++ can be used either classic ECN feedback or AccECN feedback.
 More information is available in ECN++ draft https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02
 
+3. AccEcn
+Some new TCP mechanisms like Congestion Exposure (ConEx), Data Center TCP (DCTCP)
+or Low Latency Low Loss Scalable Throughput (L4S) need more accurate
+ECN feedback information whenever more than one marking is received in one RTT.
+AccEcn provides more than one feedback signal per RTT in the TCP header.
+More information is available in AccEcn draft https://tools.ietf.org/html/draft-ietf-tcpm-accurate-ecn-07
+
 
 The following ECN states are declared in ``src/internet/model/tcp-socket.h``
 
@@ -793,8 +800,11 @@ The following ECN states are declared in ``src/internet/model/tcp-socket.h``
       ECN_CE_RCVD,      //!< Last packet received had CE bit set in IP header
       ECN_SENDING_ECE,  //!< Receiver sends an ACK with ECE bit set in TCP header
       ECN_ECE_RCVD,     //!< Last ACK received had ECE bit set in TCP header
-      ECN_CWR_SENT      //!< Sender has reduced the congestion window, and sent a packet with CWR bit set in TCP header. This is used for tracing.
-    } EcnStates_t;
+      ECN_CWR_SENT      //!< Sender has reduced the congestion window, and sent a packet with CWR bit set in TCP header.
+                            This is used for tracing.
+      ECN_ECT0_RCVD,    //!< Last packet received had ECT0 bit set in IP header, only used in AccECN
+      ECN_ECT1_RCVD     //!< Last packet received had ECT1 bit set in IP header, only used in AccECN
+    } EcnState_t;
 
 
 The following enum represents the mode of ECN:
@@ -806,6 +816,7 @@ The following enum represents the mode of ECN:
       NoEcn = 0,   //!< ECN is not enabled.
       ClassicEcn,  //!< ECN functionality as described in RFC 3168.
       EcnPp        //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets.
+      AccEcn,      //!< More Accurate ECN, by default the function of ECN++ is enabled in AccEcn
     } EcnMode_t;
 
 The following are some important ECN parameters
@@ -817,16 +828,20 @@ Enabling ECN
 ^^^^^^^^^^^^
 
 By default, support for ECN is disabled in TCP sockets.  To enable, change
-the value of the attribute ``ns3::TcpSocketBase::EcnMode`` from NoEcn to ClassicEcn or EcnPp.
+the value of the attribute ``ns3::TcpSocketBase::EcnMode`` from NoEcn to ClassicEcn, EcnPp or AccEcn.
 
 ::
 
   Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("ClassicEcn"))
+  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("EcnPp"))
+  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("AccEcn"))
 
 ECN negotiation
 ^^^^^^^^^^^^^^^
 
 ECN capability is negotiated during the three-way TCP handshake:
+
+For ClassicEcn and EcnPp
 
 1. Sender sends SYN + CWR + ECE
 
@@ -883,6 +898,72 @@ The receiver should send SYN/ACK packet with ECT bits set in the IP header.
 If the sender of SYN/ACK get congestion feedback, it will adopt ECN+ for congestion response.
 Reduce IW from 10 segments to 1 segment.
 
+For AccEcn
+AccEcn re-allocates the TCP flag at bit 7 of the TCP header as AE (Accurate ECN) flag.
+
+1. Sender sends SYN
+CWR + ECE + AE should be set if the sender is AccEcn enabled.
+
+::
+     if (m_ecnMode == EcnMode_t::AccEcn)
+       {
+         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR| TcpHeader::AE);
+       }
+
+2. Receiver sends SYN + ACK
+Receiver should set corresponding CWR, ECE and AE bit
+to feedback what suffers in SYN packet to the Sender.
+
+::
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR | TcpHeader::AE);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::AE);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD) // ECT1 on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE | TcpHeader::CWR);
+        }
+      else // NOT-ECT on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR);
+        }
+
+3. Sender Sends Ack
+A host MUST interpret the AE, CWR and ECE flags as the 3-bit ACE
+counter on a segment with the SYN flag cleared (SYN=0) that it sends
+or receives if both of its half-connections are set into AccECN mode
+having successfully negotiated AccECN.
+
+On the final ACK of the 3WHS, a TCP client (A) in AccECN mode MUST
+use the ACE field to feedback which of the 4 possible values of
+the IP-ECN field were on the SYN/ACK.
+
+::
+
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b110);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b100);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD) // ECT1 on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b011);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else // NOT-ECT on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b010);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
 
 ECN State Transitions
 ^^^^^^^^^^^^^^^^^^^^^
@@ -899,6 +980,19 @@ ECN State Transitions
    CWR bit set. It remains in this state until an ACK with valid ECE is received
    (i.e., ECE is received for a packet that belongs to a new window),
    following which, it's state changes to ECN_ECE_RCVD.
+
+AccEcn Counters
+^^^^^^^^^^^^^^^^
+Each Data Receiver of each half connection maintains four counters,
+r.cep, r.ceb, r.e0b and r.e1b.
+1. The CE packet counter (r.cep), counts the number of packets the host receives with
+   the CE code point in the IP ECN field, including CE marks on control packets without data.
+2. r.ceb, r.e0b and r.e1b count the number of TCP payload bytes in packets marked
+   respectively with the CE, ECT(0) and ECT(1) codepoint in their IP-ECN field.
+
+These counters are maintained in Ptr<TcpAccEcnData> m_accEcnData in TcpSocketBase.
+r.cep will be feedback in 3 bit ACE flag in Tcp header.
+r.ceb, r.e0b and r.e1b will be feedback in AccEcn Option in Tcp header.
 
 RFC 3168 compliance
 ^^^^^^^^^^^^^^^^^^^
@@ -944,6 +1038,21 @@ Re-XMT:
 	The sender will postpone the congestion response till new data packet sendout.
 
 
+AccEcn compliance
+^^^^^^^^^^^^^^^^
+
+Based on the suggestions provided in AccEcn draft, the following behavior has
+been implemented:
+
+1. During negotiation, end point will use 3 bit (ECE, CWR and AE) in Tcp header
+   to do AccEcn negotiation; after negotiation end point will encode r.ceb into
+   these 3-bit field named as ACE to feedback how many packet received with CE mark.
+2. AccEcn Option feedback r.e0b r.ceb and r.e1b which should be sent at SYN+ACK,
+   last ACK in three way handshake and first data segment. For the following packet,
+   whether to carry AccEcn Option will based on change-trigger rule (Section 3.2.8).
+3. Once received packet, end point will decode ACE to get s.cep, decode AccEcn Option
+   if exists to get s.e0b, s.ceb and s.e1b.
+
 Open issues
 ^^^^^^^^^^^
 
@@ -962,20 +1071,36 @@ For classic ECN:
    outgoing TCP sessions (e.g. a TCP may perform ECN echoing but not set the
    ECT codepoints on its outbound data segments).
 
+
 For ECN++:
 1. The fall-back strategy should be implemented when packet retransmission happens in negotiation phase.
-Now if the sender of SYN/ACK timeout, it will still persist sending out SYN/ACK with ECT in IP header.
-ECN++ draft suggests the fall-back strategy to retransmit only one more ECT SYN/ACK and cache failed connection attempts in chap 3.2.2.3.
+   Now if the sender of SYN/ACK timeout, it will still persist sending out SYN/ACK with ECT in IP header.
+   ECN++ draft suggests the fall-back strategy to retransmit only one more ECT SYN/ACK and cache failed connection attempts in chap 3.2.2.3.
 
 2. the TCP data receiver MUST ignore the CE codepoint on incoming segments that fail any validity check.
-Now in ns-3, the validity check just check whether the sequence number fall into the receiving wiondow.
-While in ECN++ draft the validity check in section 5.2 of [RFC5961] is RECOMMENDED
+   Now in ns-3, the validity check just check whether the sequence number fall into the receiving wiondow.
+   While in ECN++ draft the validity check in section 5.2 of [RFC5961] is RECOMMENDED
 
 3. Pure ACKs means acknowledgement packet without data.
-ECN++ draft suggest to set ECT in pure ACKs.
-But the logic about congestion response in pure ACKs is not clear. 
-Actually only AccECN will use ECT in pure ACKs..
-So not support ECN for pure ACKs in ECN++ so far.
+   ECN++ draft suggest to set ECT in pure ACKs.
+   But the logic about congestion response in pure ACKs is not clear.
+   Actually only AccECN will use ECT in pure ACKs..
+   So not support ECN for pure ACKs in ECN++ so far.
+
+
+For AccEcn:
+1. Currently all the AccEcn Option in ns-3 is full-length option.
+   AccEcn option can be truncated when the option space is limited. (Section 3.2.6)
+
+2. Note that there is no field to feedback Not-ECT bytes.  Nonetheless
+   an algorithm for the Data Sender to calculate the number of payload
+   bytes received as Not-ECT is given in Appendix A.5. (Section Section 3.2.6)
+
+3. Section 3.2.7.2, Section3.2.7.3, Section 3.2.7.4 in AccEcn draft are skip
+   Algorithm in A.2.2 is skipped because AccEcn will set ECT in pure ACKs.
+
+4. Using the first algorithm in A.3 to estimate Marked Bytes from Marked Packets
+   when AccEcn option is not available.
 
 Validation
 ++++++++++
