@@ -4611,13 +4611,6 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
     }
 
     NS_LOG_INFO (m_node->GetId () << " Decode AccEcn ACE field, s.cep=" << m_accEcnData->m_ecnCepS);
-
-    // based on AccECN draft A.3, use ACE to estimate s.ceb without AccEcn option
-//    uint32_t byteInFlight = BytesInFlight();
-//    uint32_t packetInFlight = 1; //TDB
-//    uint32_t cebD = cepDsafer * (byteInFlight/packetInFlight);
-//    m_accEcnData->m_ecnCebS += cebD;
-
   }
   else
   {

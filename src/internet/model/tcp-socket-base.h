@@ -583,7 +583,7 @@ public:
       NoEcn = 0,   //!< ECN is not enabled.
       ClassicEcn,  //!< ECN functionality as described in RFC 3168.
       EcnPp,       //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets.
-      AccEcn,      //!< More Accurate ECN in enable, by default the function of ECN++ is enabled in AccEcn
+      AccEcn,      //!< More Accurate ECN, by default the function of ECN++ is enabled in AccEcn
     } EcnMode_t;
 
   /**
