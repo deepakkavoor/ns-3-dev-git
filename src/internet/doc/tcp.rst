@@ -1100,7 +1100,9 @@ For AccEcn:
    Algorithm in A.2.2 is skipped because AccEcn will set ECT in pure ACKs.
 
 4. Using the first algorithm in A.3 to estimate Marked Bytes from Marked Packets
-   when AccEcn option is not available.
+   when AccEcn option is not available is not implemented because of it is hard to get packet in flight.
+
+5. The first data segment should carry AccEcn Option.(Section 3.2.7.1). Currently using sequence number equals 1 to figure the first data segment in ns-3.
 
 Validation
 ++++++++++
