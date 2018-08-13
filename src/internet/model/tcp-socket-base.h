@@ -478,6 +478,12 @@ public:
       return tos & 0xfc;
     }
 
+  bool CheckEcnRvdSyn (const TcpHeader& tcpHeader);
+
+  bool CheckEcnRvdSynAck (const TcpHeader& tcpHeader);
+
+  bool CheckEcnRvdEcnEcho (const TcpHeader& tcpHeader);
+
   /**
    * \brief ECN Modes
    */
