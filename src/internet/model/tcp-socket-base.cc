@@ -2470,7 +2470,20 @@ TcpSocketBase::SendEmptyPacket (uint8_t flags)
       ++s;
     }
 
-  AddSocketTags (p);
+  // Based on ECN++ draft Table 1 https://tools.ietf.org/html/draft-ietf-tcpm-generalized-ecn-02#section-3.2
+  // if use ECN++ to reinforce classic ECN RFC 3618
+  // should set ECT in SYN/ACK, pure ACK, FIN, RST
+  // pure ACK do not clear so far, temporarily not set ECT in pure ACK
+  if (m_ecnMode == EcnMode_t::EcnPp &&
+      (flags == (TcpHeader::SYN|TcpHeader::ACK|TcpHeader::ECE) ||
+      (m_tcb->m_ecnState != TcpSocketState::ECN_DISABLED && (flags == (TcpHeader::FIN|TcpHeader::ACK) || flags == TcpHeader::RST))))
+    {
+      AddSocketTags (p, true);
+    }
+  else
+    {
+      AddSocketTags (p);
+    }
 
   header.SetFlags (flags);
   header.SetSequenceNumber (s);
