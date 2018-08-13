@@ -484,7 +484,8 @@ public:
   typedef enum
     {
       NoEcn = 0,   //!< ECN is not enabled.
-      ClassicEcn   //!< ECN functionality as described in RFC 3168.
+      ClassicEcn,  //!< ECN functionality as described in RFC 3168.
+      EcnPp,       //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets
     } EcnMode_t;
 
   /**

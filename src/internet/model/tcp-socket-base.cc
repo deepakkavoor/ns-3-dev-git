@@ -145,7 +145,8 @@ TcpSocketBase::GetTypeId (void)
                    EnumValue (EcnMode_t::NoEcn),
                    MakeEnumAccessor (&TcpSocketBase::m_ecnMode),
                    MakeEnumChecker (EcnMode_t::NoEcn, "NoEcn",
-                                    EcnMode_t::ClassicEcn, "ClassicEcn"))
+                                    EcnMode_t::ClassicEcn, "ClassicEcn",
+                                    EcnMode_t::EcnPp, "EcnPp"))
     .AddTraceSource ("RTO",
                      "Retransmission timeout",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_rto),
@@ -992,7 +993,7 @@ TcpSocketBase::DoConnect (void)
   if (m_state == CLOSED || m_state == LISTEN || m_state == SYN_SENT || m_state == LAST_ACK || m_state == CLOSE_WAIT)
     { // send a SYN packet and change state into SYN_SENT
       // send a SYN packet with ECE and CWR flags set if sender is ECN capable
-      if (m_ecnMode == EcnMode_t::ClassicEcn)
+      if (m_ecnMode != EcnMode_t::NoEcn)
         {
           SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR);
         }
@@ -2043,7 +2044,7 @@ TcpSocketBase::ProcessSynSent (Ptr<Packet> packet, const TcpHeader& tcpHeader)
       /* Check if we received an ECN SYN packet. Change the ECN state of receiver to ECN_IDLE if the traffic is ECN capable and
        * sender has sent ECN SYN packet
        */
-      if (m_ecnMode == EcnMode_t::ClassicEcn && (tcpflags & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
+      if (m_ecnMode != EcnMode_t::NoEcn && (tcpflags & (TcpHeader::CWR | TcpHeader::ECE)) == (TcpHeader::CWR | TcpHeader::ECE))
         {
           NS_LOG_INFO ("Received ECN SYN packet");
           SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE);
@@ -3443,7 +3444,7 @@ TcpSocketBase::ReTxTimeout ()
     {
       if (m_synCount > 0)
         {
-          if (m_ecnMode == EcnMode_t::ClassicEcn)
+          if (m_ecnMode != EcnMode_t::NoEcn)
             {
               SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR);
             }
