@@ -1163,8 +1163,9 @@ protected:
   /**
    * \brief Add Tags for the Socket
    * \param p Packet
+   * \param withEct mark ECT forcefully, by default is false
    */
-  void AddSocketTags (const Ptr<Packet> &p) const;
+  void AddSocketTags (const Ptr<Packet> &p, bool withEct = false) const;
 
 protected:
   // Counters and events
