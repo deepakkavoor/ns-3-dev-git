@@ -2883,7 +2883,9 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
     }
 
   // Sender should reduce the Congestion Window as a response to receiver's ECN Echo notification only once per window
-  if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get () && !isRetransmission)
+  // In case of ECN++: Sender should reduce the Congestion Window even for the retransmission packet
+  bool isRequiredCWR = (m_ecnMode == EcnMode_t::ClassicEcn && !isRetransmission) || m_ecnMode == EcnMode_t::EcnPp;
+  if (m_tcb->m_ecnState == TcpSocketState::ECN_ECE_RCVD && m_ecnEchoSeq.Get() > m_ecnCWRSeq.Get () && isRequiredCWR)
     {
       NS_LOG_INFO ("Backoff mechanism by reducing CWND  by half because we've received ECN Echo");
       m_tcb->m_cWnd = std::max (m_tcb->m_cWnd.Get () / 2, m_tcb->m_segmentSize);
@@ -2902,7 +2904,14 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
         }
     }
 
-  AddSocketTags (p);
+  if (m_ecnMode == EcnMode_t::EcnPp)
+    {
+      AddSocketTags (p, isRetransmission);
+    }
+  else
+    {
+      AddSocketTags (p);
+    }
 
   if (m_closeOnEmpty && (remainingData == 0))
     {
