@@ -2116,7 +2116,21 @@ TcpSocketBase::ProcessSynRcvd (Ptr<Packet> packet, const TcpHeader& tcpHeader,
   if (tcpflags == 0
       || (tcpflags == TcpHeader::ACK
           && m_tcb->m_nextTxSequence + SequenceNumber32 (1) == tcpHeader.GetAckNumber ()))
-    { // If it is bare data, accept it and move to ESTABLISHED state. This is
+    {
+
+      if (m_ecnMode == EcnMode_t::EcnPp && (tcpHeader.GetFlags () & TcpHeader::ECE))
+        {
+          // Based on ECN++ draft, using ECN+ for SYN/ACK congestion response
+          // If the tcp responser get the feedback that first SYN/ACK suffers CE mark,
+          // then the tcp responser reset IW to 1 SMSS and do nothing
+          // If the tcp responser is the sender, it will send out data from 1 SMSS
+          // If the tcp responser is the receiver, IW reduce do not have any actual meaning, but just do it
+          NS_LOG_DEBUG ("SET IW to 1 SMSS");
+          m_tcb->m_cWnd = 1 * m_tcb->m_segmentSize;
+          m_tcb->m_cWndInfl = m_tcb->m_cWnd;
+        }
+
+      // If it is bare data, accept it and move to ESTABLISHED state. This is
       // possibly due to ACK lost in 3WHS. If in-sequence ACK is received, the
       // handshake is completed nicely.
       NS_LOG_DEBUG ("SYN_RCVD -> ESTABLISHED");
