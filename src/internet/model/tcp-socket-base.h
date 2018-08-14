@@ -638,9 +638,45 @@ public:
     }
 
   /**
+   * \brief Set Ace field for tcp flags
+   *
+   * \return tcp flags with ace field setting
+   */
+  inline uint16_t SetAceFlags (uint8_t ace) const
+    {
+      uint16_t aceFlags = static_cast<uint16_t> (ace & 0x7);
+      return (aceFlags << 6);
+    }
+
+  /**
+   * \brief Get Ace field from tcp flags
+   *
+   * \return Ace field in tcp flags
+   */
+  inline uint8_t GetAceFlags (uint16_t flags) const
+    {
+      uint8_t ace = (flags >> 6) & 0x7;
+      return ace;
+    }
+
+  /**
+   * \brief Encode Ace field from r.cep
+   *
+   * \return 3 bit ace to set into tcp flags
+   */
+  uint8_t EncodeAceFlags (uint32_t cepR) const;
+
+  /**
+   * \brief decode s.cep from ace field
+   *
+   * \return s.cep
+   */
+   uint32_t DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const;
+
+  /**
    * \brief Set ECN mode to use on the socket
    *
-   * \param ecnMode Mode of ECN. Currently NoEcn and ClassicEcn is supported.
+   * \param ecnMode Mode of ECN. Currently NoEcn, ClassicEcn, EcnPp and AccEcn is supported.
    */
   void SetEcn (EcnMode_t ecnMode);
 

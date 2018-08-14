@@ -4666,6 +4666,14 @@ TcpSocketBase::EcnModeName[TcpSocketBase::AccEcn + 1] =
   "NoEcn", "ClassicEcn", "EcnPp", "AccEcn"
 };
 
+uint8_t TcpSocketBase::EncodeAceFlags (uint32_t cepR) const
+{
+  // based on AccECN draft A.2.1
+  uint8_t DIVACE = 8;
+  uint8_t ACE = cepR % DIVACE;
+  return ACE;
+}
+
 //RttHistory methods
 RttHistory::RttHistory (SequenceNumber32 s, uint32_t c, Time t)
   : seq (s),
