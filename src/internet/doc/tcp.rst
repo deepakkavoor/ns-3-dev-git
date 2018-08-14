@@ -992,6 +992,140 @@ the support for marking pure ACK packets is not removed from the Internet draft
 (instead, the ambiguity is resolved), our implementation would have to be extended
 to support marking of pure ACK packets.
 
+AccEcn: More Accurate ECN Feedback in TCP
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Some new TCP mechanisms like Congestion Exposure (ConEx), Data Center TCP (DCTCP)
+or Low Latency Low Loss Scalable Throughput (L4S) need more accurate
+ECN feedback information whenever more than one marking is received in one RTT.
+AccEcn provides more than one feedback signal per RTT in the TCP header.
+More information is available in AccEcn draft https://tools.ietf.org/html/draft-ietf-tcpm-accurate-ecn-07
+
+Enabling AccEcn
+^^^^^^^^^^^^^^
+
+By default, support for ECN++ is disabled in TCP sockets. To enable, change the
+value of the attribute ``ns3::TcpSocketBase::EcnMode`` from NoEcn to AccEcn.
+
+::
+
+  Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("AccEcn"))
+
+AccEcn negotiation
+^^^^^^^^^^^^^^^^^^
+
+AccEcn re-allocates the TCP flag at bit 7 of the TCP header as AE (Accurate ECN) flag.
+
+1. Sender sends SYN
+CWR + ECE + AE should be set if the sender is AccEcn enabled.
+
+::
+     if (m_ecnMode == EcnMode_t::AccEcn)
+       {
+         SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR| TcpHeader::AE);
+       }
+
+2. Receiver sends SYN + ACK
+Receiver should set corresponding CWR, ECE and AE bit
+to feedback what suffers in SYN packet to the Sender.
+
+::
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR | TcpHeader::AE);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::AE);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD) // ECT1 on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::ECE | TcpHeader::CWR);
+        }
+      else // NOT-ECT on SYN
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ACK | TcpHeader::CWR);
+        }
+
+3. Sender Sends Ack
+A host MUST interpret the AE, CWR and ECE flags as the 3-bit ACE
+counter on a segment with the SYN flag cleared (SYN=0) that it sends
+or receives if both of its half-connections are set into AccECN mode
+having successfully negotiated AccECN.
+
+On the final ACK of the 3WHS, a TCP client (A) in AccECN mode MUST
+use the ACE field to feedback which of the 4 possible values of
+the IP-ECN field were on the SYN/ACK.
+
+::
+
+      if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD) // CE on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b110);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT0_RCVD) // ECT0 on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b100);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else if (m_tcb->m_ecnState == TcpSocketState::ECN_ECT1_RCVD) // ECT1 on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b011);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+      else // NOT-ECT on SYN/ACK
+        {
+          uint16_t flags = SetAceFlags (0b010);
+          SendEmptyPacket (TcpHeader::ACK | flags);
+        }
+
+AccEcn Counters
+^^^^^^^^^^^^^^^^
+Each Data Receiver of each half connection maintains four counters,
+r.cep, r.ceb, r.e0b and r.e1b.
+1. The CE packet counter (r.cep), counts the number of packets the host receives with
+   the CE code point in the IP ECN field, including CE marks on control packets without data.
+2. r.ceb, r.e0b and r.e1b count the number of TCP payload bytes in packets marked
+   respectively with the CE, ECT(0) and ECT(1) codepoint in their IP-ECN field.
+
+These counters are maintained in Ptr<TcpAccEcnData> m_accEcnData in TcpSocketBase.
+r.cep will be feedback in 3 bit ACE flag in Tcp header.
+r.ceb, r.e0b and r.e1b will be feedback in AccEcn Option in Tcp header.
+
+AccEcn compliance
+^^^^^^^^^^^^^^^^^
+
+Based on the suggestions provided in AccEcn draft, the following behavior has
+been implemented:
+
+1. During negotiation, end point will use 3 bit (ECE, CWR and AE) in Tcp header
+   to do AccEcn negotiation; after negotiation end point will encode r.ceb into
+   these 3-bit field named as ACE to feedback how many packet received with CE mark.
+2. AccEcn Option feedback r.e0b r.ceb and r.e1b which should be sent at SYN+ACK,
+   last ACK in three way handshake and first data segment. For the following packet,
+   whether to carry AccEcn Option will based on change-trigger rule (Section 3.2.8).
+3. Once received packet, end point will decode ACE to get s.cep, decode AccEcn Option
+   if exists to get s.e0b, s.ceb and s.e1b.
+
+Limitations of AccEcn implementation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1. Currently all the AccEcn Option in ns-3 is full-length option.
+   AccEcn option can be truncated when the option space is limited. (Section 3.2.6)
+
+2. Note that there is no field to feedback Not-ECT bytes.  Nonetheless
+   an algorithm for the Data Sender to calculate the number of payload
+   bytes received as Not-ECT is given in Appendix A.5. (Section Section 3.2.6)
+
+3. Section 3.2.7.2, Section3.2.7.3, Section 3.2.7.4 in AccEcn draft are skip
+   Algorithm in A.2.2 is skipped because AccEcn will set ECT in pure ACKs.
+
+4. Using the first algorithm in A.3 to estimate Marked Bytes from Marked Packets
+   when AccEcn option is not available is not implemented because of it is hard to get packet in flight.
+
+5. The first data segment should carry AccEcn Option.(Section 3.2.7.1). Currently using sequence number equals 1 to figure the first data segment in ns-3.
+
 Validation
 ++++++++++
 
