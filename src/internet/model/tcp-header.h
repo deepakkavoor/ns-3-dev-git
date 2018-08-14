@@ -73,7 +73,7 @@ public:
    *
    * \return the generated string
    **/
-  static std::string FlagsToString (uint8_t flags, const std::string& delimiter = "|");
+  static std::string FlagsToString (uint16_t flags, const std::string& delimiter = "|");
 
   /**
    * \brief Enable checksum calculation for TCP
@@ -112,7 +112,7 @@ public:
    * \brief Set flags of the header
    * \param flags the flags for this TcpHeader
    */
-  void SetFlags (uint8_t flags);
+  void SetFlags (uint16_t flags);
 
   /**
    * \brief Set the window size
@@ -166,7 +166,7 @@ public:
    * \brief Get the flags
    * \return the flags for this TcpHeader
    */
-  uint8_t GetFlags () const;
+  uint16_t GetFlags () const;
 
   /**
    * \brief Get the window size
@@ -286,7 +286,8 @@ public:
     ACK  = 16,  //!< Ack
     URG  = 32,  //!< Urgent
     ECE  = 64,  //!< ECE
-    CWR  = 128  //!< CWR
+    CWR  = 128, //!< CWR
+    AE   = 256  //!< AE
   } Flags_t;
 
   /**
@@ -337,7 +338,7 @@ private:
   SequenceNumber32 m_sequenceNumber;  //!< Sequence number
   SequenceNumber32 m_ackNumber;       //!< ACK number
   uint8_t m_length;             //!< Length (really a uint4_t) in words.
-  uint8_t m_flags;              //!< Flags (really a uint6_t)
+  uint16_t m_flags;              //!< Flags (really a uint9_t)
   uint16_t m_windowSize;        //!< Window size
   uint16_t m_urgentPointer;     //!< Urgent pointer
 

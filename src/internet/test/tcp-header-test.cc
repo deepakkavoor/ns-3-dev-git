@@ -40,7 +40,6 @@ using namespace ns3;
   static_cast<uint8_t> (RandomVariable->GetInteger (0, UINT8_MAX >> 2))
 
 
-
 /**
  * \ingroup internet-test
  * \ingroup tests
@@ -72,7 +71,7 @@ void TcpHeaderGetSetTestCase::DoRun (void)
   uint16_t destinationPort;   // Destination port
   SequenceNumber32 sequenceNumber;  // Sequence number
   SequenceNumber32 ackNumber;       // ACK number
-  uint8_t flags;              // Flags (really a uint6_t)
+  uint16_t flags;              // Flags (really a uint6_t)
   uint16_t windowSize;        // Window size
   uint16_t urgentPointer;     // Urgent pointer
   TcpHeader header;
@@ -405,6 +404,9 @@ TcpHeaderFlagsToString::DoRun (void)
   NS_TEST_ASSERT_MSG_EQ (str, target, "str " << str <<  " does not equal target " << target);
   str = TcpHeader::FlagsToString (0x80);
   target = "CWR";
+  NS_TEST_ASSERT_MSG_EQ (str, target, "str " << str <<  " does not equal target " << target);
+  str = TcpHeader::FlagsToString (0x100);
+  target = "AE";
   NS_TEST_ASSERT_MSG_EQ (str, target, "str " << str <<  " does not equal target " << target);
   str = TcpHeader::FlagsToString (0x3);
   target = "FIN|SYN";

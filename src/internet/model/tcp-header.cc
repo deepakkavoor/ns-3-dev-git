@@ -52,9 +52,10 @@ TcpHeader::~TcpHeader ()
 }
 
 std::string
-TcpHeader::FlagsToString (uint8_t flags, const std::string& delimiter)
+TcpHeader::FlagsToString (uint16_t flags, const std::string& delimiter)
 {
-  static const char* flagNames[8] = {
+  const int flagBits = 9;
+  static const char* flagNames[flagBits] = {
     "FIN",
     "SYN",
     "RST",
@@ -62,10 +63,11 @@ TcpHeader::FlagsToString (uint8_t flags, const std::string& delimiter)
     "ACK",
     "URG",
     "ECE",
-    "CWR"
+    "CWR",
+    "AE"
   };
   std::string flagsDescription = "";
-  for (uint8_t i = 0; i < 8; ++i)
+  for (uint8_t i = 0; i < flagBits; ++i)
     {
       if (flags & (1 << i))
         {
@@ -110,7 +112,7 @@ TcpHeader::SetAckNumber (SequenceNumber32 ackNumber)
 }
 
 void
-TcpHeader::SetFlags (uint8_t flags)
+TcpHeader::SetFlags (uint16_t flags)
 {
   m_flags = flags;
 }
@@ -169,7 +171,7 @@ TcpHeader::GetMaxOptionLength () const
   return m_maxOptionsLen;
 }
 
-uint8_t
+uint16_t
 TcpHeader::GetFlags () const
 {
   return m_flags;
@@ -366,7 +368,7 @@ TcpHeader::Deserialize (Buffer::Iterator start)
   m_sequenceNumber = i.ReadNtohU32 ();
   m_ackNumber = i.ReadNtohU32 ();
   uint16_t field = i.ReadNtohU16 ();
-  m_flags = field & 0xFF;
+  m_flags = field & 0x1FF;
   m_length = field >> 12;
   m_windowSize = i.ReadNtohU16 ();
   i.Next (2);
