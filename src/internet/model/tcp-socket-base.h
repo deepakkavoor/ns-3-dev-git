@@ -1292,6 +1292,7 @@ protected:
    */
   void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
 
+  void DecodeAccEcnData (const TcpHeader& tcpHeader);
 protected:
   // Counters and events
   EventId           m_retxEvent     {}; //!< Retransmission event

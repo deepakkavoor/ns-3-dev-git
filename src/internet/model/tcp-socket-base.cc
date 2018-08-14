@@ -1337,6 +1337,11 @@ TcpSocketBase::DoForwardUp (Ptr<Packet> packet, const Address &fromAddress,
 
   m_rxTrace (packet, tcpHeader, this);
 
+  if (m_connected && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    DecodeAccEcnData (tcpHeader);
+  }
+
   if (tcpHeader.GetFlags () & TcpHeader::SYN)
     {
       /* The window field in a segment where the SYN bit is set (i.e., a <SYN>
@@ -4535,6 +4540,58 @@ void TcpSocketBase::CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& t
             }
         }
     }
+}
+
+void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
+{
+  NS_LOG_FUNCTION (this << tcpHeader);
+  NS_ASSERT (m_connected);
+  NS_ASSERT (m_ecnMode == EcnMode_t::AccEcn);
+
+  bool hasOptionTS = tcpHeader.HasOption (TcpOption::TS);
+  bool hasOptionSack = tcpHeader.HasOption (TcpOption::SACK);
+
+  uint32_t newlyAckedB = tcpHeader.GetAckNumber () - m_highRxAckMark;
+  if (hasOptionSack)
+    {
+      Ptr<const TcpOptionSack> sackOption = DynamicCast<const TcpOptionSack> (tcpHeader.GetOption (TcpOption::SACK));
+      newlyAckedB = ProcessOptionSack (sackOption);
+    }
+
+  bool newlyAckedT = true;
+  if (hasOptionTS)
+    {
+      Ptr<const TcpOptionTS> ts = DynamicCast<const TcpOptionTS> (tcpHeader.GetOption (TcpOption::TS));
+      if (m_tcb->m_rcvTimestampValue > ts->GetTimestamp ())
+        {
+          newlyAckedT = false;
+        }
+    }
+  else
+    {
+      newlyAckedT = tcpHeader.GetSequenceNumber() >= m_rxBuffer->NextRxSequence () || false;
+    }
+
+  // Update sender counters
+  uint8_t ace = GetAceFlags (tcpHeader.GetFlags());
+  uint8_t DIVACE = 2<<2;
+  uint32_t newlyAckedPkt = newlyAckedB / m_tcb->m_segmentSize;
+
+  uint32_t cepD = (ace + DIVACE - (m_accEcnData->m_ecnCepS % DIVACE)) % DIVACE;
+  uint32_t cepDsafer = newlyAckedPkt - ((newlyAckedPkt - cepD) % DIVACE);
+  NS_LOG_DEBUG("newlyAckedB:" << newlyAckedB << " newlyAckedPkt: " << newlyAckedPkt << " newlyAckedT: " << newlyAckedT);
+  NS_LOG_DEBUG("m_accEcnData.m_ecnCepS: " << m_accEcnData->m_ecnCepS << " ace: " << static_cast<uint32_t>(ace) << " cepD: " << cepD << " cepDsafer: " << cepDsafer);
+
+  // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
+  if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
+    {
+      if (newlyAckedPkt < cepD)
+        {
+          cepDsafer = cepD;
+        }
+      m_accEcnData->m_ecnCepS += cepDsafer;
+    }
+  NS_LOG_INFO (m_node->GetId () << " Decode AccEcn ACE field, s.cep=" << m_accEcnData->m_ecnCepS);
 }
 
 /*
