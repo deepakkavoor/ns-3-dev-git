@@ -2584,7 +2584,16 @@ TcpSocketBase::SendEmptyPacket (uint16_t flags)
   uint16_t windowSize = AdvertisedWindowSize ();
   bool hasSyn = flags & TcpHeader::SYN;
   bool hasFin = flags & TcpHeader::FIN;
+  bool hasAck = flags & TcpHeader::ACK;
   bool isAck = flags == TcpHeader::ACK;
+
+  bool addAccEcnOption = (hasSyn && hasAck) || (!hasSyn && hasAck && !m_connected) || !m_accEcnData->m_useDelAckAccEcn;
+  if (m_ecnMode == EcnMode_t::AccEcn && addAccEcnOption)
+  {
+    AddOptionAccEcn (header);
+    m_accEcnData->m_useDelAckAccEcn = true;
+  }
+
   if (hasSyn)
     {
       if (m_winScalingEnabled)
@@ -3008,6 +3017,12 @@ TcpSocketBase::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, bool with
     {
       header.SetFlags (flags);
     }
+
+  if ((!m_accEcnData->m_useDelAckAccEcn || seq == SequenceNumber32 (1)) && m_ecnMode == EcnMode_t::AccEcn)
+  {
+    AddOptionAccEcn (header);
+    m_accEcnData->m_useDelAckAccEcn = true;
+  }
 
   header.SetSequenceNumber (seq);
   header.SetAckNumber (m_rxBuffer->NextRxSequence ());
@@ -4830,7 +4845,7 @@ TcpSocketBase::AddOptionAccEcn (TcpHeader& header)
   option->SetCEB (m_accEcnData->m_ecnCebR % DIVOPT);
   option->SetE1B (m_accEcnData->m_ecnE1bR % DIVOPT);
   header.AppendOption (option);
-  
+
   NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData->m_ecnE0bR % DIVOPT
                                 << " r.ceb=" << m_accEcnData->m_ecnCebR % DIVOPT
                                 << " r.e1b=" << m_accEcnData->m_ecnE1bR % DIVOPT);
