@@ -1094,6 +1094,10 @@ TcpSocketBase::DoConnect (void)
         {
           SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR);
         }
+      else if (m_ecnMode == EcnMode_t::AccEcn)
+        {
+          SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR| TcpHeader::AE);
+        }
       else
         {
           SendEmptyPacket (TcpHeader::SYN);
@@ -3583,6 +3587,10 @@ TcpSocketBase::ReTxTimeout ()
           if (m_ecnMode == EcnMode_t::ClassicEcn || m_ecnMode == EcnMode_t::EcnPp)
             {
               SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR);
+            }
+          else if (m_ecnMode == EcnMode_t::AccEcn)
+            {
+              SendEmptyPacket (TcpHeader::SYN | TcpHeader::ECE | TcpHeader::CWR| TcpHeader::AE);
             }
           else
             {
