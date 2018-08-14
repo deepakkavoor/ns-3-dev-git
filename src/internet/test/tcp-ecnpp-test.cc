@@ -1,6 +1,7 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * Copyright (c) 2016 NITK Surathkal
+ * Copyright (c) 2018 Tsinghua University
+ * Copyright (c) 2018 NITK Surathkal
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -15,6 +16,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
+ * Authors: Wenying Dai <dwy927@gmail.com>
+ *          Mohit P. Tahiliani <tahiliani.nitk@gmail.com>
  */
 
  #include "ns3/ipv4.h"
@@ -76,7 +79,7 @@ public:
   void SetTestCase (uint32_t testCase, SocketWho who);
 
 protected:
-  virtual void SendEmptyPacket (uint8_t flags);
+  virtual void SendEmptyPacket (uint16_t flags);
   virtual void PersistTimeout ();
   virtual Ptr<TcpSocketBase> Fork (void);
   void SetCE(Ptr<Packet> p);
@@ -114,7 +117,7 @@ TcpSocketCongestionRouter::Fork (void)
 }
 
 void
-TcpSocketCongestionRouter::SendEmptyPacket (uint8_t flags)
+TcpSocketCongestionRouter::SendEmptyPacket (uint16_t flags)
 {
   NS_LOG_FUNCTION (this << static_cast<uint32_t> (m_testcase) << static_cast<uint32_t> (flags));
   m_controlPacketSent++;
