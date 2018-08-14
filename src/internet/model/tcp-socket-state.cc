@@ -86,6 +86,7 @@ TcpSocketState::TcpSocketState (const TcpSocketState &other)
     m_lastAckedSeq (other.m_lastAckedSeq),
     m_congState (other.m_congState),
     m_ecnState (other.m_ecnState),
+    m_isEcnBitFlipped (other.m_isEcnBitFlipped),
     m_highTxMark (other.m_highTxMark),
     m_nextTxSequence (other.m_nextTxSequence),
     m_rcvTimestampValue (other.m_rcvTimestampValue),
@@ -106,9 +107,9 @@ TcpSocketState::TcpCongStateName[TcpSocketState::CA_LAST_STATE] =
 };
 
 const char* const
-TcpSocketState::EcnStateName[TcpSocketState::ECN_CWR_SENT + 1] =
+TcpSocketState::EcnStateName[TcpSocketState::ECN_ECT1_RCVD + 1] =
 {
-  "ECN_DISABLED", "ECN_IDLE", "ECN_CE_RCVD", "ECN_SENDING_ECE", "ECN_ECE_RCVD", "ECN_CWR_SENT"
+  "ECN_DISABLED", "ECN_IDLE", "ECN_CE_RCVD", "ECN_SENDING_ECE", "ECN_ECE_RCVD", "ECN_CWR_SENT", "ECN_ECT0_RCVD", "ECN_ECT1_RCVD"
 };
 
 } //namespace ns3
