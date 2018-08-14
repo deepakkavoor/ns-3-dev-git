@@ -32,6 +32,7 @@
 #include "ns3/data-rate.h"
 #include "ns3/node.h"
 #include "ns3/tcp-socket-state.h"
+#include "tcp-accecn-data.h"
 
 namespace ns3 {
 
@@ -360,6 +361,46 @@ public:
   TracedCallback<Time, Time> m_lastRttTrace;
 
   /**
+   * \brief Callback pointer for AccEcn s.e0b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE0bSTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn s.e1b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE1bSTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn s.ceb trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCebSTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn s.cep trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCepSTrace;
+
+  /**
+ * \brief Callback pointer for AccEcn r.e0b trace chaining
+ */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE0bRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.e1b trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnE1bRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.ceb trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCebRTrace;
+
+  /**
+   * \brief Callback pointer for AccEcn r.cep trace chaining
+   */
+  TracedCallback<uint32_t, uint32_t> m_accEcnCepRTrace;
+
+  /**
    * \brief Callback function to hook to TcpSocketState congestion window
    * \param oldValue old cWnd value
    * \param newValue new cWnd value
@@ -423,6 +464,62 @@ public:
    * \param newValue new rtt value
    */
   void UpdateRtt (Time oldValue, Time newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e0bR
+  * \param oldValue old r.e0b of AccEcn data value
+  * \param newValue new r.e0b of AccEcn data value
+  */
+  void UpdateAccEcnE0bR (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e1bR
+  * \param oldValue old r.e1b of AccEcn data value
+  * \param newValue new r.e1b of AccEcn data value
+  */
+  void UpdateAccEcnE1bR (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cebR
+  * \param oldValue old r.ceb of AccEcn data value
+  * \param newValue new r.ceb of AccEcn data value
+  */
+  void UpdateAccEcnCebR (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cepR
+  * \param oldValue old r.cep of AccEcn data value
+  * \param newValue new r.cep of AccEcn data value
+  */
+  void UpdateAccEcnCepR (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e0bS
+  * \param oldValue old s.e0b of AccEcn data value
+  * \param newValue new s.e0b of AccEcn data value
+  */
+  void UpdateAccEcnE0bS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData e1bS
+  * \param oldValue old s.e1b of AccEcn data value
+  * \param newValue new s.e1b of AccEcn data value
+  */
+  void UpdateAccEcnE1bS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cebS
+  * \param oldValue old s.ceb of AccEcn data value
+  * \param newValue new s.ceb of AccEcn data value
+  */
+  void UpdateAccEcnCebS (uint32_t oldValue, uint32_t newValue);
+
+  /**
+  * \brief Callback function to hook to TcpAccEcnData cepS
+  * \param oldValue old s.cep of AccEcn data value
+  * \param newValue new s.cep of AccEcn data value
+  */
+  void UpdateAccEcnCepS (uint32_t oldValue, uint32_t newValue);
 
   /**
    * \brief Install a congestion control algorithm on this socket
@@ -492,7 +589,13 @@ public:
       NoEcn = 0,   //!< ECN is not enabled.
       ClassicEcn,  //!< ECN functionality as described in RFC 3168.
       EcnPp,       //!< ECN++ to reinforce ClassicEcn, marking ECT in control packets
+      AccEcn,      //!< More Accurate ECN, by default the function of ECN++ is enabled in AccEcn
     } EcnMode_t;
+
+  /**
+   * \brief Literal names of ECN Mode for use in log messages
+   */
+  static const char* const EcnModeName[TcpSocketBase::AccEcn + 1];
 
   /**
    * \brief Checks if TOS has no ECN bits
@@ -1274,6 +1377,7 @@ protected:
 
   // Parameters related to Explicit Congestion Notification
   EcnMode_t                     m_ecnMode    {EcnMode_t::NoEcn};      //!< Socket ECN capability
+  Ptr<TcpAccEcnData>            m_accEcnData;
   TracedValue<SequenceNumber32> m_ecnEchoSeq {0};      //!< Sequence number of the last received ECN Echo
   TracedValue<SequenceNumber32> m_ecnCESeq   {0};      //!< Sequence number of the last received Congestion Experienced
   TracedValue<SequenceNumber32> m_ecnCWRSeq  {0};      //!< Sequence number of the last sent CWR

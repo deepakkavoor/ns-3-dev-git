@@ -146,7 +146,8 @@ TcpSocketBase::GetTypeId (void)
                    MakeEnumAccessor (&TcpSocketBase::m_ecnMode),
                    MakeEnumChecker (EcnMode_t::NoEcn, "NoEcn",
                                     EcnMode_t::ClassicEcn, "ClassicEcn",
-                                    EcnMode_t::EcnPp, "EcnPp"))
+                                    EcnMode_t::EcnPp, "EcnPp",
+                                    EcnMode_t::AccEcn, "AccEcn"))
     .AddTraceSource ("RTO",
                      "Retransmission timeout",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_rto),
@@ -227,6 +228,38 @@ TcpSocketBase::GetTypeId (void)
                      "Sequence of last received CWR",
                      MakeTraceSourceAccessor (&TcpSocketBase::m_ecnCWRSeq),
                      "ns3::SequenceNumber32TracedValueCallback")
+    .AddTraceSource ("AccEcnE0bR",
+                     "The payload byte number marked ECT(0) for AccEcn at data receiver",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE0bRTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnE1bR",
+                     "The payload byte number marked ECT(1) for AccEcn at data receiver",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE1bRTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCebR",
+                     "The payload byte number marked CE for AccEcn at data receiver",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCebRTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCepR",
+                     "The packet number marked CE for AccEcn at data receiver",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCepRTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnE0bS",
+                     "The payload byte number marked ECT(0) for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE0bSTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnE1bS",
+                     "The payload byte number marked ECT(1) for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnE1bSTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCebS",
+                     "The payload byte number marked CE for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCebSTrace),
+                     "ns3::TracedValueCallback::Uint32")
+    .AddTraceSource ("AccEcnCepS",
+                     "The packet number marked CE for AccEcn at data sender",
+                     MakeTraceSourceAccessor (&TcpSocketBase::m_accEcnCepSTrace),
+                     "ns3::TracedValueCallback::Uint32")
   ;
   return tid;
 }
@@ -244,6 +277,7 @@ TcpSocketBase::TcpSocketBase (void)
   m_rxBuffer = CreateObject<TcpRxBuffer> ();
   m_txBuffer = CreateObject<TcpTxBuffer> ();
   m_tcb      = CreateObject<TcpSocketState> ();
+  m_accEcnData = CreateObject<TcpAccEcnData> ();
 
   m_tcb->m_currentPacingRate = m_tcb->m_maxPacingRate;
   m_pacingTimer.SetFunction (&TcpSocketBase::NotifyPacingPerformed, this);
@@ -284,6 +318,37 @@ TcpSocketBase::TcpSocketBase (void)
 
   ok = m_tcb->TraceConnectWithoutContext ("RTT",
                                           MakeCallback (&TcpSocketBase::UpdateRtt, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bS",
+                                          MakeCallback (&TcpSocketBase::UpdateAccEcnE0bS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1bS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCebS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCepS, this));
+  NS_ASSERT (ok == true);
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE0bR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1bR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCebR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCepR, this));
   NS_ASSERT (ok == true);
 }
 
@@ -357,6 +422,7 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
   m_txBuffer = CopyObject (sock.m_txBuffer);
   m_rxBuffer = CopyObject (sock.m_rxBuffer);
   m_tcb = CopyObject (sock.m_tcb);
+  m_accEcnData = CopyObject (sock.m_accEcnData);
 
   m_tcb->m_currentPacingRate = m_tcb->m_maxPacingRate;
   m_pacingTimer.SetFunction (&TcpSocketBase::NotifyPacingPerformed, this);
@@ -407,6 +473,37 @@ TcpSocketBase::TcpSocketBase (const TcpSocketBase& sock)
 
   ok = m_tcb->TraceConnectWithoutContext ("RTT",
                                           MakeCallback (&TcpSocketBase::UpdateRtt, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bS",
+                                          MakeCallback (&TcpSocketBase::UpdateAccEcnE0bS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1bS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCebS, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepS",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCepS, this));
+  NS_ASSERT (ok == true);
+  ok = m_accEcnData->TraceConnectWithoutContext ("E0bR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE0bR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("E1bR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnE1bR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CebR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCebR, this));
+  NS_ASSERT (ok == true);
+
+  ok = m_accEcnData->TraceConnectWithoutContext ("CepR",
+                                                 MakeCallback (&TcpSocketBase::UpdateAccEcnCepR, this));
   NS_ASSERT (ok == true);
 }
 
@@ -4245,6 +4342,54 @@ TcpSocketBase::UpdateRtt (Time oldValue, Time newValue)
 }
 
 void
+TcpSocketBase::UpdateAccEcnE0bR (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE0bRTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnE1bR (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE1bRTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCebR (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCebRTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCepR (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCepRTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnE0bS (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE0bSTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnE1bS (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnE1bRTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCebS (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCebSTrace (oldValue, newValue);
+}
+
+void
+TcpSocketBase::UpdateAccEcnCepS (uint32_t oldValue, uint32_t newValue)
+{
+  m_accEcnCepSTrace (oldValue, newValue);
+}
+
+void
 TcpSocketBase::SetCongestionControlAlgorithm (Ptr<TcpCongestionOps> algo)
 {
   NS_LOG_FUNCTION (this << algo);
@@ -4354,6 +4499,12 @@ bool TcpSocketBase::CheckEcnRvdEcnEcho (const TcpHeader& tcpHeader)
     }
   return false;
 }
+
+const char* const
+TcpSocketBase::EcnModeName[TcpSocketBase::AccEcn + 1] =
+{
+  "NoEcn", "ClassicEcn", "EcnPp", "AccEcn"
+};
 
 //RttHistory methods
 RttHistory::RttHistory (SequenceNumber32 s, uint32_t c, Time t)
