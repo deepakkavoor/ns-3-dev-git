@@ -575,12 +575,6 @@ public:
       return tos & 0xfc;
     }
 
-  bool CheckEcnRvdSyn (const TcpHeader& tcpHeader);
-
-  bool CheckEcnRvdSynAck (const TcpHeader& tcpHeader);
-
-  bool CheckEcnRvdEcnEcho (const TcpHeader& tcpHeader);
-
   /**
    * \brief ECN Modes
    */
@@ -1329,6 +1323,31 @@ protected:
   void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
 
   void DecodeAccEcnData (const TcpHeader& tcpHeader);
+
+  /**
+   * \brief Check ECN flag in TCP header when received SYN packet
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdSyn (const TcpHeader& tcpHeader);
+
+  /**
+   * \brief Check ECN flag in TCP header when received SYN/ACK packet
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdSynAck (const TcpHeader& tcpHeader);
+
+  /**
+   * \brief Check ECN flag in TCP header when received last Ack in 3-way handshake
+   * \param tcpHeader TCP Header
+   */
+  void CheckEcnRvdLastAck (const TcpHeader& tcpHeader);
+
+  /**
+   * Check ECN state whether ECE is set in TCP header
+   * \param tcpHeader TCP Header
+   * \return true means ECE is set, false means no ECE set
+   */
+  bool IsEcnRvdEce (const TcpHeader& tcpHeader);
 protected:
   // Counters and events
   EventId           m_retxEvent     {}; //!< Retransmission event
