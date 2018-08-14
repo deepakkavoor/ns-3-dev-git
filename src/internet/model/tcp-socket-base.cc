@@ -56,6 +56,7 @@
 #include "tcp-option-ts.h"
 #include "tcp-option-sack-permitted.h"
 #include "tcp-option-sack.h"
+#include "tcp-option-accecn.h"
 #include "tcp-congestion-ops.h"
 #include "tcp-recovery-ops.h"
 
@@ -4815,6 +4816,56 @@ uint8_t TcpSocketBase::EncodeAceFlags (uint32_t cepR) const
   uint8_t ACE = cepR % DIVACE;
   return ACE;
 }
+
+void
+TcpSocketBase::AddOptionAccEcn (TcpHeader& header)
+{
+  NS_LOG_FUNCTION (this << header);
+  bool isSyn = (header.GetFlags() & TcpHeader::SYN) && !(header.GetFlags() & TcpHeader::ACK);
+  NS_ASSERT (!isSyn);
+
+  Ptr<TcpOptionAccEcn> option = CreateObject<TcpOptionAccEcn> ();
+  uint32_t DIVOPT = 2<<23;
+  option->SetE0B (m_accEcnData->m_ecnE0bR % DIVOPT);
+  option->SetCEB (m_accEcnData->m_ecnCebR % DIVOPT);
+  option->SetE1B (m_accEcnData->m_ecnE1bR % DIVOPT);
+  header.AppendOption (option);
+  
+  NS_LOG_INFO (m_node->GetId () << " Add option AccEcn, r.e0b=" << m_accEcnData->m_ecnE0bR % DIVOPT
+                                << " r.ceb=" << m_accEcnData->m_ecnCebR % DIVOPT
+                                << " r.e1b=" << m_accEcnData->m_ecnE1bR % DIVOPT);
+}
+
+void
+TcpSocketBase::ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t newlyAckedB)
+{
+  Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
+  NS_LOG_FUNCTION (this << accEcnOption);
+  uint32_t DIVOPT = 2<<23;
+  if (newlyAckedB > 0)
+    {
+      uint32_t e0bD = (accEcnOption->GetE0B() + DIVOPT - (m_accEcnData->m_ecnE0bS % DIVOPT)) % DIVOPT;
+      m_accEcnData->m_ecnE0bS += e0bD;
+
+      uint32_t cebD = (accEcnOption->GetCEB() + DIVOPT - (m_accEcnData->m_ecnCebS % DIVOPT)) % DIVOPT;
+      m_accEcnData->m_ecnCebS += cebD;
+
+      uint32_t e1bD = (accEcnOption->GetE1B() + DIVOPT - (m_accEcnData->m_ecnE1bS % DIVOPT)) % DIVOPT;
+      m_accEcnData->m_ecnE1bS += e1bD;
+    }
+
+  NS_LOG_INFO (m_node->GetId () << " Decode option AccEcn, s.e0b=" << m_accEcnData->m_ecnE0bS
+                                << " s.ceb=" << m_accEcnData->m_ecnCebS
+                                << " s.e1b=" << m_accEcnData->m_ecnE1bS);
+}
+
+
+const char* const
+TcpSocketBase::EcnModeName[TcpSocketBase::AccEcn + 1] =
+{
+  "NoEcn", "ClassicEcn", "EcnPp", "AccEcn"
+};
+
 
 //RttHistory methods
 RttHistory::RttHistory (SequenceNumber32 s, uint32_t c, Time t)

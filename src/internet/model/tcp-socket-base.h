@@ -668,6 +668,21 @@ public:
    uint32_t DecodeAceFlags (uint8_t ace, uint32_t newlyAckedB, bool newlyAckedT) const;
 
   /**
+   * \brief Process AccEcn option, update sender side accecn counters
+   *
+   * \param option AccEcn option read from the header
+   * \param newlyAckedB the newly acked byte number
+   */
+   void ProcessOptionAccEcn (const Ptr<const TcpOption> option, uint32_t newlyAckedB);
+
+  /**
+   * \brief Add AccEcn option in Tcp header
+   *
+   * \param header TcpHeader
+   */
+   void AddOptionAccEcn (TcpHeader& header);
+
+  /**
    * \brief Set ECN mode to use on the socket
    *
    * \param ecnMode Mode of ECN. Currently NoEcn, ClassicEcn, EcnPp and AccEcn is supported.
