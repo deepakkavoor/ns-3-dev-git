@@ -1276,6 +1276,22 @@ protected:
    */
   void AddSocketTags (const Ptr<Packet> &p, bool withEct = false) const;
 
+  /**
+   * \brief Check ECN state in IP header for ipv4
+   * \param header Ipv4 Header
+   * \param tcpHeader TCP Header
+   * \param tcpPayloadSize TCP payload size
+   */
+  void CheckEcnInIpv4 (const Ipv4Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+
+  /**
+   * \brief Check ECN state in IP header for ipv6
+   * \param header Ipv6 Header
+   * \param tcpHeader TCP Header
+   * \param tcpPayloadSize TCP payload size
+   */
+  void CheckEcnInIpv6 (const Ipv6Header& header, const TcpHeader& tcpHeader, uint32_t tcpPayloadSize);
+
 protected:
   // Counters and events
   EventId           m_retxEvent     {}; //!< Retransmission event
