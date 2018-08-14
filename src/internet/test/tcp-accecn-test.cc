@@ -38,6 +38,7 @@
 #include "ns3/tcp-tx-buffer.h"
 #include "ns3/tcp-rx-buffer.h"
 #include "ns3/rtt-estimator.h"
+#include "ns3/tcp-option-accecn.h"
 
 namespace ns3 {
 
@@ -221,9 +222,17 @@ TcpSocketTestAccEcn::SendEmptyPacket (uint16_t flags)
 
   uint16_t windowSize = AdvertisedWindowSize ();
   bool hasSyn = flags & TcpHeader::SYN;
-  bool hasAck = flags & TcpHeader::ACK;
   bool hasFin = flags & TcpHeader::FIN;
+  bool hasAck = flags & TcpHeader::ACK;
   bool isAck = flags == TcpHeader::ACK;
+
+  NS_LOG_DEBUG ("Syn+Acn: " << (hasSyn && hasAck) << " LastAck: " << (!hasSyn && hasAck && !m_connected) << " !m_useDelAckAccEcn: " << !m_accEcnData->m_useDelAckAccEcn);
+  bool addAccEcnOption = (hasSyn && hasAck) || (!hasSyn && hasAck && !m_connected) || !m_accEcnData->m_useDelAckAccEcn;
+  if (m_ecnMode == EcnMode_t::AccEcn && addAccEcnOption)
+    {
+      AddOptionAccEcn (header);
+      m_accEcnData->m_useDelAckAccEcn = true;
+    }
 
   if (hasSyn)
   {
@@ -434,6 +443,12 @@ TcpSocketTestAccEcn::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize, boo
     header.SetFlags (flags);
   }
 
+  if ((!m_accEcnData->m_useDelAckAccEcn || seq == SequenceNumber32 (1))  && m_ecnMode == EcnMode_t::AccEcn)
+    {
+      AddOptionAccEcn(header);
+      m_accEcnData->m_useDelAckAccEcn = true;
+    }
+
   header.SetSequenceNumber (seq);
   header.SetAckNumber (m_rxBuffer->NextRxSequence ());
   if (m_endPoint)
@@ -612,19 +627,40 @@ Ptr<TcpSocketMsgBase> TcpAccEcnTest::CreateReceiverSocket (Ptr<Node> node)
 void
 TcpAccEcnTest::AccEcnE0BTrace (uint32_t oldValue, uint32_t newValue)
 {
-  NS_LOG_DEBUG("AccEcnE0BTrace: " << oldValue << " " << newValue);
+  NS_LOG_DEBUG ("AccEcnE0BTrace: " << oldValue << " " << newValue);
+  m_e0bChangeCount++;
+  if (m_testcase == 11)
+    {
+      if (m_e0bChangeCount == 1)
+      {
+        NS_TEST_ASSERT_MSG_EQ (newValue, 1, "AccEcn option decode test: initial r.e0b should be 1");
+      }
+
+      if (m_e0bChangeCount == 2)
+      {
+        NS_TEST_ASSERT_MSG_EQ (newValue, 501, "AccEcn option decode test: r.e0b should be 501");
+      }
+    }
 }
 
 void
 TcpAccEcnTest::AccEcnE1BTrace (uint32_t oldValue, uint32_t newValue)
 {
-  NS_LOG_DEBUG("AccEcnE1BTrace: " << oldValue << " " << newValue);
+  NS_LOG_DEBUG ("AccEcnE1BTrace: " << oldValue << " " << newValue);
 }
 
 void
 TcpAccEcnTest::AccEcnCEBTrace (uint32_t oldValue, uint32_t newValue)
 {
-  NS_LOG_DEBUG("AccEcnCEBTrace: " << oldValue << " " << newValue);
+  NS_LOG_DEBUG ("AccEcnCEBTrace: " << oldValue << " " << newValue);
+  m_cebChangeCount++;
+  if (m_testcase == 11)
+    {
+      if (m_cebChangeCount == 1)
+      {
+        NS_TEST_ASSERT_MSG_EQ (newValue, 500, "AccEcn option decode test: s.ceb should be 500");
+      }
+    }
 }
 
 void
@@ -659,6 +695,7 @@ void
 TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
 {
   NS_LOG_FUNCTION(this << m_testcase << who);
+  bool hasOptionAccEcn = h.HasExperimentalOption (TcpOptionExperimental::ACCECN);
 
   if (who == RECEIVER)
   {
@@ -708,8 +745,19 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
           NS_TEST_ASSERT_MSG_EQ (ace - 0b010, 0, "AccEcn last ack test fail for test case 10");
         }
 
-       }
+        // AccEcn option test
+        NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
+      }
     } // End Last Ack test in tcp header
+
+    if (m_receiverReceived == 3) // the first data segment
+      {
+        if (m_testcase == 11)
+        {
+          // AccEcn option test
+          NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in the first data segment");
+        }
+      } // End test for the first data segment
 
   }// End test for who == RECEIVER
 
@@ -752,6 +800,11 @@ TcpAccEcnTest::Rx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho who)
                                0, "AccEcn SYN+ACK test fail for test case 10");
       }
 
+      // AccEcn Option test
+      if (m_testcase >=7)
+        {
+          NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in SYN+ACK");
+        }
     } // End SYN+ACK test in tcp header
 
   }// End test for who == SENDER
@@ -789,6 +842,17 @@ void TcpAccEcnTest::Tx (const Ptr<const Packet> p, const TcpHeader &h, SocketWho
         NS_TEST_ASSERT_MSG_EQ (ace , 0, "ACE encoding test: should be 0 because 8 % 8 = 0");
       }
 
+      // AccEcn Option Encoding test
+      if (m_receiverSent == 3)
+        {
+          bool hasOptionAccEcn = h.HasExperimentalOption (TcpOptionExperimental::ACCECN);
+          NS_TEST_ASSERT_MSG_NE (hasOptionAccEcn, 0, "should carry AccEcn Option in Last ACK");
+          Ptr<const TcpOption> option = h.GetExperimentalOption (TcpOptionExperimental::ACCECN);
+          Ptr<const TcpOptionAccEcn> accEcnOption = DynamicCast<const TcpOptionAccEcn> (option);
+          NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE0B() - 501 , 0, "AccEcn option encoding test: e0b should be 501");
+          NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetCEB() - 500 , 0, "AccEcn option encoding test: ceb should be 500");
+          NS_TEST_ASSERT_MSG_EQ (accEcnOption->GetE1B(), 0, "AccEcn option encoding test: e1b should be 0");
+        }
     }
   }
 }
