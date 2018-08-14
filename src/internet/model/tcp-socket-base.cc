@@ -4556,6 +4556,7 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
 
   bool hasOptionTS = tcpHeader.HasOption (TcpOption::TS);
   bool hasOptionSack = tcpHeader.HasOption (TcpOption::SACK);
+  bool hasOptionAccEcn =tcpHeader.HasExperimentalOption (TcpOptionExperimental::ACCECN);
 
   uint32_t newlyAckedB = tcpHeader.GetAckNumber () - m_highRxAckMark;
   if (hasOptionSack)
@@ -4588,16 +4589,25 @@ void TcpSocketBase::DecodeAccEcnData (const TcpHeader &tcpHeader)
   NS_LOG_DEBUG("newlyAckedB:" << newlyAckedB << " newlyAckedPkt: " << newlyAckedPkt << " newlyAckedT: " << newlyAckedT);
   NS_LOG_DEBUG("m_accEcnData.m_ecnCepS: " << m_accEcnData->m_ecnCepS << " ace: " << static_cast<uint32_t>(ace) << " cepD: " << cepD << " cepDsafer: " << cepDsafer);
 
-  // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
-  if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
+  if (!hasOptionAccEcn)
     {
-      if (newlyAckedPkt < cepD)
+      // based on AccECN draft A.2.1, decode ACE field without AccEcn Option
+      if ((newlyAckedB > 0) || (newlyAckedB == 0 && newlyAckedT > 0))
         {
-          cepDsafer = cepD;
+          if (newlyAckedPkt < cepD)
+          {
+            cepDsafer = cepD;
+          }
+          m_accEcnData->m_ecnCepS += cepDsafer;
         }
-      m_accEcnData->m_ecnCepS += cepDsafer;
+        NS_LOG_INFO (m_node->GetId () << " Decode AccEcn ACE field, s.cep=" << m_accEcnData->m_ecnCepS);
+      }
+  else
+    {
+      Ptr<const TcpOption> option = tcpHeader.GetExperimentalOption (TcpOptionExperimental::ACCECN);
+      // based on AccEcn draft A.1, decode AccEcn Option
+      ProcessOptionAccEcn(option, newlyAckedB);
     }
-  NS_LOG_INFO (m_node->GetId () << " Decode AccEcn ACE field, s.cep=" << m_accEcnData->m_ecnCepS);
 }
 
 void TcpSocketBase::CheckEcnRvdSyn (const TcpHeader& tcpHeader)
