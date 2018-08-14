@@ -220,6 +220,20 @@ public:
   bool AppendOption (Ptr<const TcpOption> option);
 
   /**
+   * \brief Check if the header has the option (kind=EXPERIMENTAL) with specified magicNumber
+   * \param magicNumber the magic number experimental option to check for
+   * \return true if the header has the experimental option with specified magicNumber, false otherwise
+   */
+  bool HasExperimentalOption (uint16_t magicNumber) const;
+
+  /**
+   * \brief Get the option (kind=EXPERIMENTAL) with specified magicNumber
+   * \param magicNumber the magic number in experimental option to retrieve
+   * \return Whether the header contains a specific experimental option with specified magicNumber, or 0
+   */
+  Ptr<const TcpOption> GetExperimentalOption(uint16_t magicNumber) const;
+
+  /**
    * \brief Initialize the TCP checksum.
    *
    * If you want to use tcp checksums, you should call this

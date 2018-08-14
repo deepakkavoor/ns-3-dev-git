@@ -389,7 +389,20 @@ TcpHeader::Deserialize (Buffer::Iterator start)
       uint32_t optionSize;
       if (TcpOption::IsKindKnown (kind))
         {
-          op = TcpOption::CreateOption (kind);
+          if (kind == TcpOption::EXPERIMENTAL)
+            {
+              // the magic number forms the first 2 bytes of the option content field
+              // we need to skip two bytes (kind + length) to reach the option content field
+              uint16_t magicNumber = TcpOptionExperimental::ACCECN;
+              if (TcpOptionExperimental::IsExIDKnown (magicNumber))
+              {
+                op = TcpOptionExperimental::CreateOptionExperimental (magicNumber);
+              }
+            }
+          else
+          {
+            op = TcpOption::CreateOption (kind);
+          }
         }
       else
         {
@@ -523,6 +536,42 @@ TcpHeader::HasOption (uint8_t kind) const
     }
 
   return false;
+}
+
+bool
+TcpHeader::HasExperimentalOption (uint16_t magicNumber) const
+{
+  TcpOptionList::const_iterator i;
+
+  for (i = m_options.begin (); i != m_options.end (); ++i)
+  {
+    if ((*i)->GetKind () == TcpOption::EXPERIMENTAL)
+    {
+      Ptr<const TcpOptionExperimental> option = DynamicCast<const TcpOptionExperimental> (*i);
+      if (option->GetExID() == magicNumber)
+      return true;
+    }
+  }
+  return false;
+}
+
+Ptr<const TcpOption>
+TcpHeader::GetExperimentalOption (uint16_t magicNumber) const
+{
+  TcpOptionList::const_iterator i;
+
+  for (i = m_options.begin (); i != m_options.end (); ++i)
+  {
+    if ((*i)->GetKind () == TcpOption::EXPERIMENTAL)
+    {
+      Ptr<const TcpOptionExperimental> option = DynamicCast<const TcpOptionExperimental> (*i);
+      if (option->GetExID() == magicNumber)
+      {
+        return (*i);
+      }
+    }
+  }
+  return 0;
 }
 
 bool
